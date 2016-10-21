@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -69,7 +70,14 @@ func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := http.Client{
-		Timeout: v.ClientTimeout,
+		Transport: &http.Transport{
+			Dial: (&net.Dialer{
+				Timeout: v.ClientTimeout,
+			}).Dial,
+			TLSHandshakeTimeout:   v.ClientTimeout,
+			ResponseHeaderTimeout: v.ClientTimeout,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
 	}
 
 	for _, mirror := range v.Mirrors.List {

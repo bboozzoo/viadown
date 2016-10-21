@@ -114,7 +114,14 @@ func doMirror(mirror string, upath string, c *Cache, w http.ResponseWriter) erro
 		}
 		w.WriteHeader(http.StatusOK)
 		if _, err := io.Copy(w, tr); err != nil {
-			log.Printf("copy failed: %v\n", err)
+			log.Printf("copy failed: %v, discarding cache entry\n", err)
+			if err := out.Discard(); err != nil {
+				log.Printf("failed to discard cache entry: %v\n", err)
+			}
+		} else {
+			if err := out.Commit(); err != nil {
+				log.Printf("commit failed: %v\n", err)
+			}
 		}
 	}
 	return nil

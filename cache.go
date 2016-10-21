@@ -23,6 +23,7 @@ package main
 
 import (
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"path"
@@ -64,18 +65,53 @@ func (c *Cache) Get(name string) (io.ReadCloser, int64, error) {
 	return f, fi.Size(), nil
 }
 
-func (c *Cache) Put(name string) (io.WriteCloser, error) {
-	// TODO check if path already exists
+func (c *Cache) Put(name string) (*CacheTemporaryObject, error) {
 	cpath := c.getCachePath(name)
 
 	if err := os.MkdirAll(path.Dir(cpath), 0700); err != nil {
 		return nil, err
 	}
 
-	f, err := os.Create(cpath)
+	f, err := ioutil.TempFile(path.Dir(cpath), path.Base(cpath)+".part.")
 	if err != nil {
 		log.Printf("cache put error: %v\n", err)
 		return nil, err
 	}
-	return f, nil
+
+	ct := CacheTemporaryObject{
+		File:       f,
+		targetName: cpath,
+		curName:    f.Name(),
+	}
+	return &ct, nil
+}
+
+type CacheTemporaryObject struct {
+	*os.File
+	targetName string
+	curName    string
+}
+
+func (ct *CacheTemporaryObject) Commit() error {
+	if err := ct.Close(); err != nil {
+		return err
+	}
+
+	log.Printf("committing entry %v to %v\n", ct.curName, ct.targetName)
+	if err := os.Rename(ct.curName, ct.targetName); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (ct *CacheTemporaryObject) Discard() error {
+	log.Printf("discard entry %v\n", ct.curName)
+	if err := ct.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Remove(ct.curName); err != nil {
+		return err
+	}
+	return nil
 }

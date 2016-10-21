@@ -22,11 +22,14 @@
 package main
 
 import (
-	"log"
 	"net/http"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 func main() {
+
+	log.SetLevel(log.DebugLevel)
 
 	m := Mirrors{}
 	m.LoadFile("mirrorlist")
@@ -43,7 +46,7 @@ func main() {
 			Cache:   &cache,
 		},
 	}
-	log.Printf("listen on %v", addr)
+	log.Infof("listen on %v", addr)
 
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("listen failed: %v", err)

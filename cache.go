@@ -24,9 +24,10 @@ package main
 import (
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"path"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 type Cache struct {
@@ -39,25 +40,27 @@ type Cache struct {
 
 func (c *Cache) getCachePath(name string) string {
 	cpath := path.Join(c.Dir, name)
-	log.Printf("cache path: %v", cpath)
+	log.Debugf("cache path: %v", cpath)
 	return cpath
 }
 
 func (c *Cache) Get(name string) (io.ReadCloser, int64, error) {
 	f, err := os.Open(c.getCachePath(name))
 	if err != nil {
-		log.Printf("cache get error: %v", err)
 		if os.IsNotExist(err) {
+			log.Infof("cache miss for %v", name)
 			c.Stats.Miss += 1
 		}
+		log.Errorf("cache get error: %v", err)
 		return nil, 0, err
 	}
 
+	log.Infof("cache hit for %v", name)
 	c.Stats.Hit += 1
 
 	fi, err := f.Stat()
 	if err != nil {
-		log.Printf("file stat failed: %v", err)
+		log.Errorf("file %s stat failed: %v", f.Name(), err)
 		f.Close()
 		return nil, 0, err
 	}
@@ -74,7 +77,7 @@ func (c *Cache) Put(name string) (*CacheTemporaryObject, error) {
 
 	f, err := ioutil.TempFile(path.Dir(cpath), path.Base(cpath)+".part.")
 	if err != nil {
-		log.Printf("cache put error: %v", err)
+		log.Errorf("cache put for %v error: %v", cpath, err)
 		return nil, err
 	}
 
@@ -97,7 +100,7 @@ func (ct *CacheTemporaryObject) Commit() error {
 		return err
 	}
 
-	log.Printf("committing entry %v to %v", ct.curName, ct.targetName)
+	log.Debugf("committing entry %v to %v", ct.curName, ct.targetName)
 	if err := os.Rename(ct.curName, ct.targetName); err != nil {
 		return err
 	}
@@ -105,7 +108,7 @@ func (ct *CacheTemporaryObject) Commit() error {
 }
 
 func (ct *CacheTemporaryObject) Discard() error {
-	log.Printf("discard entry %v", ct.curName)
+	log.Debugf("discard entry %v", ct.curName)
 	if err := ct.Close(); err != nil {
 		return err
 	}

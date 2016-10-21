@@ -25,10 +25,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 var (
@@ -44,26 +45,24 @@ type ViaDownloadServer struct {
 func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	upath := r.URL.Path
-	log.Printf("URL path: %v", upath)
-	log.Printf("URL : %v", r.URL)
+	log.Debugf("URL path: %v", upath)
+	log.Debugf("URL : %v", r.URL)
 
 	cachedr, sz, err := v.Cache.Get(upath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("cache miss")
-		} else {
-			log.Printf("cache get failed: %v", err)
+		if !os.IsNotExist(err) {
+			log.Errorf("cache get failed: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 	} else {
-		log.Printf("getting from cache, size: %v", sz)
+		log.Debugf("getting from cache, size: %v", sz)
 		defer cachedr.Close()
 
 		w.Header().Set("Content-Length", fmt.Sprintf("%v", sz))
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.WriteHeader(http.StatusOK)
 		if _, err := io.Copy(w, cachedr); err != nil {
-			log.Printf("copy from cached failed: %v", err)
+			log.Debugf("copy from cached failed: %v", err)
 		}
 		return
 	}
@@ -77,7 +76,7 @@ func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		} else {
-			log.Printf("download complete")
+			log.Debugf("download complete")
 			break
 		}
 	}
@@ -85,15 +84,15 @@ func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func doMirror(mirror string, upath string, c *Cache, w http.ResponseWriter) error {
 	url := buildURL(mirror, upath)
-	log.Printf("target url: %v", url)
+	log.Debugf("target url: %v", url)
 
 	client := http.Client{}
 	rsp, err := client.Get(url)
 	if err != nil {
-		log.Printf("request failed: %v", err)
+		log.Errorf("request to mirror %v failed: %v", mirror, err)
 		return ErrMirrorFailed
 	}
-	log.Printf("got response: %v", rsp)
+	log.Debugf("got response: %v", rsp)
 	defer rsp.Body.Close()
 
 	if rsp.StatusCode != 200 {
@@ -114,13 +113,13 @@ func doMirror(mirror string, upath string, c *Cache, w http.ResponseWriter) erro
 		}
 		w.WriteHeader(http.StatusOK)
 		if _, err := io.Copy(w, tr); err != nil {
-			log.Printf("copy failed: %v, discarding cache entry", err)
+			log.Errorf("copy failed: %v, discarding cache entry", err)
 			if err := out.Discard(); err != nil {
-				log.Printf("failed to discard cache entry: %v", err)
+				log.Errorf("failed to discard cache entry: %v", err)
 			}
 		} else {
 			if err := out.Commit(); err != nil {
-				log.Printf("commit failed: %v", err)
+				log.Errorf("commit failed: %v", err)
 			}
 		}
 	}

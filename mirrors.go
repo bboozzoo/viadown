@@ -23,9 +23,10 @@ package main
 
 import (
 	"bufio"
-	"log"
 	"os"
 	"strings"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 type Mirrors struct {
@@ -52,6 +53,6 @@ func (m *Mirrors) LoadFile(path string) error {
 		cnt += 1
 	}
 
-	log.Printf("got %v mirrors", cnt)
+	log.Infof("got %v mirrors", cnt)
 	return nil
 }

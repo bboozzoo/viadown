@@ -43,7 +43,7 @@ func main() {
 			Cache:   &cache,
 		},
 	}
-	log.Printf("listen on %v\n", addr)
+	log.Printf("listen on %v", addr)
 
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("listen failed: %v", err)

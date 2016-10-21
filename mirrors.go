@@ -52,6 +52,6 @@ func (m *Mirrors) LoadFile(path string) error {
 		cnt += 1
 	}
 
-	log.Printf("got %v mirrors\n", cnt)
+	log.Printf("got %v mirrors", cnt)
 	return nil
 }

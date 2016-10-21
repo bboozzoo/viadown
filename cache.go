@@ -39,14 +39,14 @@ type Cache struct {
 
 func (c *Cache) getCachePath(name string) string {
 	cpath := path.Join(c.Dir, name)
-	log.Printf("cache path: %v\n", cpath)
+	log.Printf("cache path: %v", cpath)
 	return cpath
 }
 
 func (c *Cache) Get(name string) (io.ReadCloser, int64, error) {
 	f, err := os.Open(c.getCachePath(name))
 	if err != nil {
-		log.Printf("cache get error: %v\n", err)
+		log.Printf("cache get error: %v", err)
 		if os.IsNotExist(err) {
 			c.Stats.Miss += 1
 		}
@@ -57,7 +57,7 @@ func (c *Cache) Get(name string) (io.ReadCloser, int64, error) {
 
 	fi, err := f.Stat()
 	if err != nil {
-		log.Printf("file stat failed: %v\n", err)
+		log.Printf("file stat failed: %v", err)
 		f.Close()
 		return nil, 0, err
 	}
@@ -74,7 +74,7 @@ func (c *Cache) Put(name string) (*CacheTemporaryObject, error) {
 
 	f, err := ioutil.TempFile(path.Dir(cpath), path.Base(cpath)+".part.")
 	if err != nil {
-		log.Printf("cache put error: %v\n", err)
+		log.Printf("cache put error: %v", err)
 		return nil, err
 	}
 
@@ -97,7 +97,7 @@ func (ct *CacheTemporaryObject) Commit() error {
 		return err
 	}
 
-	log.Printf("committing entry %v to %v\n", ct.curName, ct.targetName)
+	log.Printf("committing entry %v to %v", ct.curName, ct.targetName)
 	if err := os.Rename(ct.curName, ct.targetName); err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (ct *CacheTemporaryObject) Commit() error {
 }
 
 func (ct *CacheTemporaryObject) Discard() error {
-	log.Printf("discard entry %v\n", ct.curName)
+	log.Printf("discard entry %v", ct.curName)
 	if err := ct.Close(); err != nil {
 		return err
 	}

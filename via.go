@@ -34,8 +34,9 @@ import (
 )
 
 var (
-	ErrMirrorFailed = errors.New("mirror failed")
-	ErrInternal     = errors.New("internal error")
+	ErrUpstreamFailed    = errors.New("upstream request failed")
+	ErrUpstreamBadStatus = errors.New("upstream returned unexpected status")
+	ErrInternal          = errors.New("internal error")
 )
 
 type ViaDownloadServer struct {
@@ -48,84 +49,143 @@ func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	upath := r.URL.Path
 	log.Debugf("URL path: %v", upath)
-	log.Debugf("URL : %v", r.URL)
 
-	cachedr, sz, err := v.Cache.Get(upath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Errorf("cache get failed: %v", err)
+	log.Debugf("client headers:")
+	for h, v := range r.Header {
+		log.Debugf("  %v: %v", h, v)
+	}
+
+	if since, err := http.ParseTime(r.Header.Get("If-Modified-Since")); err == nil {
+		log.Debugf("has modified since: %v, poke upstream first", since)
+	} else {
+		// no modified since header, try to get from cache
+		found, err := doFromCache(upath, w, v.Cache)
+		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
-	} else {
-		log.Debugf("getting from cache, size: %v", sz)
-		defer cachedr.Close()
-
-		w.Header().Set("Content-Length", fmt.Sprintf("%v", sz))
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.WriteHeader(http.StatusOK)
-		if _, err := io.Copy(w, cachedr); err != nil {
-			log.Debugf("copy from cached failed: %v", err)
+		if found {
+			return
 		}
-		return
+	}
+
+	client := http.Client{
+		Timeout: v.ClientTimeout,
 	}
 
 	for _, mirror := range v.Mirrors.List {
-		if err := doMirror(mirror, upath, v.Cache, w); err != nil {
-			if err == ErrMirrorFailed {
-				continue
-			} else {
-				w.WriteHeader(500)
-				break
-			}
-		} else {
-			log.Debugf("download complete")
-			break
+		url := buildURL(mirror, upath)
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			log.Errorf("failed to prepare request: %v", err)
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		// copy some headers from the original request
+		copyHeaders(req.Header, r.Header,
+			[]string{"Accept", "If-Modified-Since"})
+
+		err = doFromUpstream(upath, &client, req, w, v.Cache)
+		switch {
+		case err == ErrInternal:
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		case err == ErrUpstreamBadStatus:
+			return
+		case err == nil:
+			return
 		}
 	}
 }
 
-func doMirror(mirror string, upath string, c *Cache, w http.ResponseWriter) error {
-	url := buildURL(mirror, upath)
-	log.Debugf("target url: %v", url)
-
-	client := http.Client{}
-	rsp, err := client.Get(url)
+func doFromCache(name string, w http.ResponseWriter, cache *Cache) (bool, error) {
+	cachedr, sz, err := cache.Get(name)
 	if err != nil {
-		log.Errorf("request to mirror %v failed: %v", mirror, err)
-		return ErrMirrorFailed
+		if os.IsNotExist(err) {
+			return false, nil
+		} else {
+			log.Errorf("cache get failed: %v", err)
+			return false, errors.New("cache access failed")
+		}
+	}
+
+	log.Debugf("getting from cache, size: %v", sz)
+	defer cachedr.Close()
+
+	w.Header().Set("Content-Length", fmt.Sprintf("%v", sz))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, cachedr); err != nil {
+		log.Debugf("copy from cached failed: %v", err)
+	}
+	return true, nil
+}
+
+func doFromUpstream(name string, client *http.Client, req *http.Request,
+	w http.ResponseWriter, cache *Cache) error {
+
+	rsp, err := client.Do(req)
+	if err != nil {
+		return ErrUpstreamFailed
 	}
 	log.Debugf("got response: %v", rsp)
 	defer rsp.Body.Close()
 
 	if rsp.StatusCode != 200 {
-		return ErrMirrorFailed
+		log.Errorf("got status %v from upstream %s",
+			rsp.StatusCode, req.URL)
+		// TODO be smart, return ErrMirrorTryAnother for 404 requests
+		// possibly
+		copyHeaders(w.Header(), rsp.Header,
+			[]string{"Content-Type", "Content-Length",
+				"ETag", "Last-Modified",
+				"Date"})
+		w.WriteHeader(rsp.StatusCode)
+		// got non 200 status, just forward
+		io.Copy(w, rsp.Body)
+		return ErrUpstreamBadStatus
+	}
+
+	out, err := cache.Put(name)
+	if err != nil {
+		return ErrInternal
+	}
+
+	// setup TeeReader so that the data makes to the disk while it's also
+	// sent to the original requester
+	tr := io.TeeReader(rsp.Body, out)
+
+	// copy over headers from upstream response
+	copyHeaders(w.Header(), rsp.Header,
+		[]string{"Content-Type", "Content-Length",
+			"ETag", "Last-Modified",
+			"Date"})
+	// let the client know we're good
+	w.WriteHeader(http.StatusOK)
+
+	// send over the data
+	if _, err := io.Copy(w, tr); err != nil {
+		// we've already sent a status header, we're just streaming data
+		// now, if that fails, discard any data cached so far
+		log.Errorf("copy failed: %v, discarding cache entry", err)
+		if err := out.Discard(); err != nil {
+			log.Errorf("failed to discard cache entry: %v", err)
+		}
 	} else {
-		out, err := c.Put(upath)
-		if err != nil {
-			return ErrInternal
-		}
-
-		tr := io.TeeReader(rsp.Body, out)
-
-		for _, hdr := range []string{"Content-Type", "Content-Length"} {
-			hv := rsp.Header.Get(hdr)
-			if hv != "" {
-				w.Header().Set(hdr, hv)
-			}
-		}
-		w.WriteHeader(http.StatusOK)
-		if _, err := io.Copy(w, tr); err != nil {
-			log.Errorf("copy failed: %v, discarding cache entry", err)
-			if err := out.Discard(); err != nil {
-				log.Errorf("failed to discard cache entry: %v", err)
-			}
-		} else {
-			if err := out.Commit(); err != nil {
-				log.Errorf("commit failed: %v", err)
-			}
+		if err := out.Commit(); err != nil {
+			log.Errorf("commit failed: %v", err)
 		}
 	}
+	log.Debugf("upstream download finished")
 	return nil
+}
+
+func copyHeaders(to http.Header, from http.Header, which []string) {
+	for _, hdr := range which {
+		hv := from.Get(hdr)
+		if hv != "" {
+			to.Set(hdr, hv)
+		}
+	}
 }
 
 func buildURL(base, path string) string {

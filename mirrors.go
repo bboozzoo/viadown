@@ -52,7 +52,15 @@ func (m *Mirrors) LoadFile(path string) error {
 		}
 
 		line := scan.Text()
+
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
 		mirror := strings.TrimSpace(line)
+
+		if len(mirror) == 0 {
+			continue
+		}
 		m.List = append(m.List, mirror)
 		cnt += 1
 	}

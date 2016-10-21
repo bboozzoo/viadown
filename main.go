@@ -22,23 +22,43 @@
 package main
 
 import (
+	"flag"
 	"net/http"
+	"os"
 
 	log "github.com/Sirupsen/logrus"
 )
 
+var (
+	optDebug      = flag.Bool("debug", false, "Enable debug logging")
+	optCacheRoot  = flag.String("cache-root", "./tmp", "Cache directory path")
+	optListenAddr = flag.String("listen", ":8080", "Listen address")
+	optMirrors    = flag.String("mirrors", "", "Mirror list file")
+)
+
 func main() {
 
-	log.SetLevel(log.DebugLevel)
+	flag.Parse()
 
-	m := Mirrors{}
-	m.LoadFile("mirrorlist")
-
-	cache := Cache{
-		Dir: "./tmp",
+	if *optDebug {
+		log.SetLevel(log.DebugLevel)
+		log.Debugf("debug logging enabled")
 	}
 
-	addr := ":8080"
+	if *optMirrors == "" {
+		log.Errorf("no mirrors, cannot continue")
+		os.Exit(1)
+	}
+
+	m := Mirrors{}
+	m.LoadFile(*optMirrors)
+
+	log.Infof("cache root: %v", *optCacheRoot)
+	cache := Cache{
+		Dir: *optCacheRoot,
+	}
+
+	addr := *optListenAddr
 	server := http.Server{
 		Addr: addr,
 		Handler: &ViaDownloadServer{

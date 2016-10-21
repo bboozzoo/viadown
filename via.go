@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 )
@@ -38,8 +39,9 @@ var (
 )
 
 type ViaDownloadServer struct {
-	Mirrors *Mirrors
-	Cache   *Cache
+	Mirrors       *Mirrors
+	Cache         *Cache
+	ClientTimeout time.Duration
 }
 
 func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {

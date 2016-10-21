@@ -25,6 +25,7 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 )
@@ -34,6 +35,7 @@ var (
 	optCacheRoot  = flag.String("cache-root", "./tmp", "Cache directory path")
 	optListenAddr = flag.String("listen", ":8080", "Listen address")
 	optMirrors    = flag.String("mirrors", "", "Mirror list file")
+	optTimeout    = flag.Duration("client-timeout", 15*time.Second, "Forward request timeout")
 )
 
 func main() {
@@ -62,8 +64,9 @@ func main() {
 	server := http.Server{
 		Addr: addr,
 		Handler: &ViaDownloadServer{
-			Mirrors: &m,
-			Cache:   &cache,
+			Mirrors:       &m,
+			Cache:         &cache,
+			ClientTimeout: *optTimeout,
 		},
 	}
 	log.Infof("listen on %v", addr)

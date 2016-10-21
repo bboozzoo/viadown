@@ -162,6 +162,7 @@ func doFromUpstream(name string, client *http.Client, req *http.Request,
 	// let the client know we're good
 	w.WriteHeader(http.StatusOK)
 
+	log.Infof("downloading %v from %s to cache", name, req.URL)
 	// send over the data
 	if _, err := io.Copy(w, tr); err != nil {
 		// we've already sent a status header, we're just streaming data
@@ -173,6 +174,8 @@ func doFromUpstream(name string, client *http.Client, req *http.Request,
 	} else {
 		if err := out.Commit(); err != nil {
 			log.Errorf("commit failed: %v", err)
+		} else {
+			log.Infof("successfully downloaded %v", name)
 		}
 	}
 	log.Debugf("upstream download finished")

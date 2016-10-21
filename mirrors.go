@@ -34,8 +34,11 @@ type Mirrors struct {
 }
 
 func (m *Mirrors) LoadFile(path string) error {
+	log.Debugf("loading mirror list from file %v", path)
+
 	f, err := os.Open(path)
 	if err != nil {
+		log.Errorf("failed to open mirrors file: %v", err)
 		return err
 	}
 	defer f.Close()
@@ -44,6 +47,7 @@ func (m *Mirrors) LoadFile(path string) error {
 	cnt := 0
 	for scan.Scan() {
 		if err := scan.Err(); err != nil {
+			log.Errorf("failed to read line from mirrors file: %v", err)
 			return err
 		}
 

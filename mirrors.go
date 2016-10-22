@@ -62,7 +62,7 @@ func (m *Mirrors) LoadFile(path string) error {
 			continue
 		}
 		m.List = append(m.List, mirror)
-		cnt += 1
+		cnt++
 	}
 
 	log.Infof("got %v mirrors", cnt)

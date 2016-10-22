@@ -49,14 +49,14 @@ func (c *Cache) Get(name string) (io.ReadCloser, int64, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Infof("cache miss for %v", name)
-			c.Stats.Miss += 1
+			c.Stats.Miss++
 		}
 		log.Errorf("cache get error: %v", err)
 		return nil, 0, err
 	}
 
 	log.Infof("cache hit for %v", name)
-	c.Stats.Hit += 1
+	c.Stats.Hit++
 
 	fi, err := f.Stat()
 	if err != nil {

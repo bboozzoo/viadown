@@ -53,7 +53,11 @@ func main() {
 	}
 
 	m := Mirrors{}
-	m.LoadFile(*optMirrors)
+	if err := m.LoadFile(*optMirrors); err != nil {
+		log.Errorf("failed to load mirrors from %v: %v",
+			*optMirrors, err)
+		os.Exit(1)
+	}
 
 	log.Infof("cache root: %v", *optCacheRoot)
 	cache := Cache{

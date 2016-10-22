@@ -110,10 +110,9 @@ func doFromCache(name string, w http.ResponseWriter, cache *Cache) (bool, error)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
-		} else {
-			log.Errorf("cache get failed: %v", err)
-			return false, errors.New("cache access failed")
 		}
+		log.Errorf("cache get failed: %v", err)
+		return false, errors.New("cache access failed")
 	}
 
 	log.Debugf("getting from cache, size: %v", sz)

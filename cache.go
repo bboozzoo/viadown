@@ -102,6 +102,8 @@ func (ct *CacheTemporaryObject) Commit() error {
 
 	log.Debugf("committing entry %v to %v", ct.curName, ct.targetName)
 	if err := os.Rename(ct.curName, ct.targetName); err != nil {
+		log.Errorf("rename %v -> %v failed: %v",
+			ct.curName, ct.targetName, err)
 		return err
 	}
 	return nil

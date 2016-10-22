@@ -23,11 +23,11 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -118,7 +118,7 @@ func doFromCache(name string, w http.ResponseWriter, cache *Cache) (bool, error)
 	log.Debugf("getting from cache, size: %v", sz)
 	defer cachedr.Close()
 
-	w.Header().Set("Content-Length", fmt.Sprintf("%v", sz))
+	w.Header().Set("Content-Length", strconv.FormatInt(sz, 10))
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.WriteHeader(http.StatusOK)
 	if _, err := io.Copy(w, cachedr); err != nil {

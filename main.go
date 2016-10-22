@@ -61,6 +61,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	log.Infof("viadown version %v starting...", Version)
+
 	m := Mirrors{}
 	if err := m.LoadFile(*optMirrors); err != nil {
 		log.Errorf("failed to load mirrors from %v: %v",

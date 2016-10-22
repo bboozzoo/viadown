@@ -23,6 +23,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -36,11 +37,19 @@ var (
 	optListenAddr = flag.String("listen", ":8080", "Listen address")
 	optMirrors    = flag.String("mirrors", "", "Mirror list file")
 	optTimeout    = flag.Duration("client-timeout", 15*time.Second, "Forward request timeout")
+	optVersion    = flag.Bool("version", false, "Show version")
+
+	Version = "(unknown)"
 )
 
 func main() {
 
 	flag.Parse()
+
+	if *optVersion {
+		fmt.Println(Version)
+		return
+	}
 
 	if *optDebug {
 		log.SetLevel(log.DebugLevel)

@@ -136,3 +136,87 @@ func TestViaFromCache(t *testing.T) {
 		rec.HeaderMap.Get("Content-Type"))
 
 }
+
+type MockUpstreamServer struct {
+	Code int           // if non 0, HTTP status code to be sent, otherwise responds with 200
+	Body []byte        // if len() > 0, data to be sent
+	Req  *http.Request // incoming HTTP request
+}
+
+func (m *MockUpstreamServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if m.Code != 0 {
+		w.WriteHeader(m.Code)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	if len(m.Body) != 0 {
+		w.Write(m.Body)
+	}
+	m.Req = r
+}
+
+func TestViaFromUpstream(t *testing.T) {
+	td, err := ioutil.TempDir("", "viadown-via-from-cache-test-")
+	assert.NoError(t, err)
+	defer os.RemoveAll(td)
+
+	c := Cache{
+		Dir: td,
+	}
+
+	// 1: upstream returns 404
+	ms := &MockUpstreamServer{
+		Code: http.StatusNotFound,
+	}
+	srv := httptest.NewServer(ms)
+	assert.NotNil(t, srv)
+
+	rec := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	err = doFromUpstream("foo", &http.Client{}, req, rec, &c)
+	assert.EqualError(t, err, ErrUpstreamBadStatus.Error())
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	srv.Close()
+
+	// 2: upstream returns 200 and data
+	ms = &MockUpstreamServer{
+		Body: []byte("foo"),
+	}
+	srv = httptest.NewServer(ms)
+	assert.NotNil(t, srv)
+
+	rec = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodGet, srv.URL, nil)
+	err = doFromUpstream("foo", &http.Client{}, req, rec, &c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, []byte("foo"), rec.Body.Bytes())
+
+	srv.Close()
+
+	// data should have made it to cache
+	in, _, err := c.Get("foo")
+	assert.NoError(t, err)
+	data, _ := ioutil.ReadAll(in)
+	assert.Equal(t, []byte("foo"), data)
+
+	// 3: upstream returns 304 and data
+	ms = &MockUpstreamServer{
+		Code: http.StatusNotModified,
+	}
+	srv = httptest.NewServer(ms)
+	assert.NotNil(t, srv)
+
+	rec = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodGet, srv.URL, nil)
+	err = doFromUpstream("bar", &http.Client{}, req, rec, &c)
+	assert.Error(t, err, ErrUpstreamBadStatus.Error())
+	assert.Equal(t, http.StatusNotModified, rec.Code)
+
+	srv.Close()
+
+	// since upstream code was not 200, there should be no data in cache
+	_, _, err = c.Get("bar")
+	assert.True(t, os.IsNotExist(err))
+}

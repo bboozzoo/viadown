@@ -82,4 +82,4 @@ http://archlinux.my-universe.com/
 - [ ] old file cleanup, `github.com/robfig/cron` maybe?
 - [ ] minimal usable dashboard
 - [ ] expvar for cache/hit miss, seen clients etc?
-- [ ] make sure that allow only GET requests
+- [ ] make sure to allow only GET requests

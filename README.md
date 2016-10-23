@@ -75,3 +75,11 @@ http://mirror.js-webcoding.de/pub/archlinux/
 http://archlinux.my-universe.com/
 
 ```
+
+## TODO
+
+- [ ] `Range` requests support
+- [ ] old file cleanup, `github.com/robfig/cron` maybe?
+- [ ] minimal usable dashboard
+- [ ] expvar for cache/hit miss, seen clients etc?
+- [ ] make sure that allow only GET requests

@@ -6,6 +6,11 @@ VERSION = $(shell git describe --tags --always --dirty)
 GO_LDFLAGS = \
 	-ldflags "-X main.Version=$(VERSION)"
 
+DEPS = \
+	github.com/Sirupsen/logrus \
+	github.com/stretchr/testify/assert \
+
+
 ifeq ($(V),1)
 BUILDV = -v
 endif
@@ -19,6 +24,11 @@ install:
 clean:
 	$(GO) clean
 	rm -f coverage.out coverage-tmp.out
+
+get-deps:
+	for d in $(DEPS); do \
+		go get -v -u "$$d"; \
+	done
 
 test:
 	$(GO) test -v $(PKGS)

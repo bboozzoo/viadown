@@ -1,0 +1,20 @@
+language: go
+
+go:
+  - 1.7
+  - tip
+
+before_script:
+  - echo $TRAVIS_COMMIT
+  - echo $TRAVIS_TAG
+  - echo $TRAVIS_BRANCH
+  - echo $TRAVIS_BUILD_NUMBER
+  - echo $TRAVIS_REPO_SLUG
+
+  # travis clones the repository, we need to pull dependencies
+  - make get-deps
+
+  - make test
+
+script:
+  - make V=1

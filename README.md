@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/bboozzoo/viadown.svg?branch=master)](https://travis-ci.org/bboozzoo/viadown)
+
 # viadown
 Download mirroring tool
 

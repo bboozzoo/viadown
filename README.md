@@ -8,8 +8,46 @@ a local mirror, but why download all of packages instead of just the few that
 are needed? You could setup a caching proxy, but what about those package
 managers that do not play well with proxies?
 
-`viadown` is a proxying/mirroring tool that downloads requested packages to its
-local cache while serving the same data to whoever requested it.
+`viadown` is a proxying/mirroring tool that downloads data to its local cache
+while serving the same data to whoever requested it. Unline a regular HTTP
+proxy, `viadown`, does not implement the actual PROXY protocol. Instead it
+provides a method of on-demand mirroring.
+
+Principle of operation is illustrated below:
+
+1. uncached response
+
+```
+         (request)   +---------+  (forwarded)
+        -----------> |         | ------------->
+ client              | viadown |                upstream
+        <----------- |         | <-------------
+         (stream     +---------+   (reply)
+          data)             |
+                            |
+                            | (store to local cache)
+                            v
+                     +---------+
+                     | cache   |
+                     +---------+
+```
+
+2. cached response
+
+```
+         (request)   +---------+
+        -----------> |         |
+ client              | viadown | .............. upstream
+        <----------- |         |  (no traffic)
+         (stream     +---------+
+          data)        ^
+                       |
+                       | (stream from local cache)
+                       |
+                     +---------+
+                     | cache   |
+                     +---------+
+```
 
 ## Building
 
@@ -26,12 +64,15 @@ running a non-x86 CPU, you will need to cross compile. For instance, to build
 GOARCH=arm GOARM=7 go build -v
 ```
 
+Using `make` to build `viadown` will also embed current version information into
+the binary.
+
 ## Configuration
 
 Configuration is passed through command line arguments. See `-help` for details.
 
 ```
-Usage of viadown:
+Usage of ./viadown:
   -cache-root string
         Cache directory path (default "./tmp")
   -client-timeout duration
@@ -42,6 +83,8 @@ Usage of viadown:
         Listen address (default ":8080")
   -mirrors string
         Mirror list file
+  -version
+        Show version
 ```
 
 ## Mirror list

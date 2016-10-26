@@ -128,3 +128,4 @@ http://archlinux.my-universe.com/
 - [ ] minimal usable dashboard
 - [ ] expvar for cache/hit miss, seen clients etc?
 - [ ] make sure to allow only GET requests
+- [ ] graceful shutdown on signal (SIGINT/SIGTERM)

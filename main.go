@@ -86,6 +86,8 @@ func main() {
 	}
 	log.Infof("listen on %v", addr)
 
+	// TODO: figure out how to stop the server gracefully once a signal is
+	// received
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("listen failed: %v", err)
 	}

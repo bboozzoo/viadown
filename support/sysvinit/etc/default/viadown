@@ -1,0 +1,3 @@
+VIADOWN_START="0"
+# edit viadown options first then set VIADOWN_START to 1
+#VIADOWN_OPTS="-mirrors <mirrorlist> -listen :9999 -cache-root <cache-root-path>"

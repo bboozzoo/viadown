@@ -74,7 +74,7 @@ the binary.
 Configuration is passed through command line arguments. See `-help` for details.
 
 ```
-Usage of ./viadown:
+Usage of viadown:
   -cache-root string
         Cache directory path (default "./tmp")
   -client-timeout duration
@@ -85,6 +85,8 @@ Usage of ./viadown:
         Listen address (default ":8080")
   -mirrors string
         Mirror list file
+  -syslog
+        Enable logging to syslog
   -version
         Show version
 ```

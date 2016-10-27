@@ -29,6 +29,8 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	log_syslog "github.com/Sirupsen/logrus/hooks/syslog"
+	"log/syslog"
 )
 
 var (
@@ -38,6 +40,7 @@ var (
 	optMirrors    = flag.String("mirrors", "", "Mirror list file")
 	optTimeout    = flag.Duration("client-timeout", 15*time.Second, "Forward request timeout")
 	optVersion    = flag.Bool("version", false, "Show version")
+	optSyslog     = flag.Bool("syslog", false, "Enable logging to syslog")
 
 	Version = "(unknown)"
 )
@@ -59,6 +62,15 @@ func main() {
 	if *optMirrors == "" {
 		log.Errorf("no mirrors, cannot continue")
 		os.Exit(1)
+	}
+
+	if *optSyslog {
+		h, err := log_syslog.NewSyslogHook("", "", syslog.LOG_INFO, "viadown")
+		if err != nil {
+			log.Errorf("failed to connect to syslog: %v", err)
+		} else {
+			log.AddHook(h)
+		}
 	}
 
 	log.Infof("viadown version %v starting...", Version)

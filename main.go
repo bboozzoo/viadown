@@ -54,6 +54,15 @@ func main() {
 		return
 	}
 
+	if *optSyslog {
+		h, err := log_syslog.NewSyslogHook("", "", syslog.LOG_INFO, "viadown")
+		if err != nil {
+			log.Errorf("failed to connect to syslog: %v", err)
+		} else {
+			log.AddHook(h)
+		}
+	}
+
 	if *optDebug {
 		log.SetLevel(log.DebugLevel)
 		log.Debugf("debug logging enabled")
@@ -62,15 +71,6 @@ func main() {
 	if *optMirrors == "" {
 		log.Errorf("no mirrors, cannot continue")
 		os.Exit(1)
-	}
-
-	if *optSyslog {
-		h, err := log_syslog.NewSyslogHook("", "", syslog.LOG_INFO, "viadown")
-		if err != nil {
-			log.Errorf("failed to connect to syslog: %v", err)
-		} else {
-			log.AddHook(h)
-		}
 	}
 
 	log.Infof("viadown version %v starting...", Version)

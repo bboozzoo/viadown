@@ -26,6 +26,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -98,9 +100,21 @@ func main() {
 	}
 	log.Infof("listen on %v", addr)
 
-	// TODO: figure out how to stop the server gracefully once a signal is
-	// received
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("listen failed: %v", err)
+	listenerrchan := make(chan error)
+	sigchan := make(chan os.Signal)
+
+	// wait for SIGINT, SIGTERM, SIGQUIT
+	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM,
+		syscall.SIGQUIT)
+
+	go func() {
+		listenerrchan <- server.ListenAndServe()
+	}()
+
+	select {
+	case fail := <-listenerrchan:
+		log.Fatalf("listen failed: %v", fail)
+	case sig := <-sigchan:
+		log.Infof("exiting on signal... %s", sig)
 	}
 }

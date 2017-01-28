@@ -34,7 +34,7 @@ VIADOWN_OPTS=""
 [ -r /etc/default/$NAME ] && . /etc/default/$NAME
 
 
-DAEMON_ARGS=" -syslog $VIADOWN_OPTS"
+DAEMON_ARGS=" -syslog -pidfile $PIDFILE $VIADOWN_OPTS"
 
 # Load the VERBOSE setting and other rcS variables
 . /lib/init/vars.sh

@@ -24,9 +24,11 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -43,6 +45,7 @@ var (
 	optTimeout    = flag.Duration("client-timeout", 15*time.Second, "Forward request timeout")
 	optVersion    = flag.Bool("version", false, "Show version")
 	optSyslog     = flag.Bool("syslog", false, "Enable logging to syslog")
+	optPidfile    = flag.String("pidfile", "", "Write self PID to this file")
 
 	Version = "(unknown)"
 )
@@ -75,7 +78,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	log.Infof("viadown version %v starting...", Version)
+	pid := os.Getpid()
+	log.Infof("viadown version %v starting... PID: %v", Version, pid)
+
+	if *optPidfile != "" {
+		err := ioutil.WriteFile(*optPidfile, []byte(strconv.Itoa(pid)),
+			0600)
+		if err != nil {
+			log.Fatalf("failed to write pid to %s: %v",
+				*optPidfile, err)
+		}
+	}
 
 	m := Mirrors{}
 	if err := m.LoadFile(*optMirrors); err != nil {

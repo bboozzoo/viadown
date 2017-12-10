@@ -32,8 +32,8 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
-	log_syslog "github.com/Sirupsen/logrus/hooks/syslog"
+	log "github.com/sirupsen/logrus"
+	log_syslog "github.com/sirupsen/logrus/hooks/syslog"
 	"log/syslog"
 )
 

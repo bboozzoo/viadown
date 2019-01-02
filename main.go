@@ -110,7 +110,7 @@ func main() {
 	log.Infof("listen on %v", addr)
 
 	listenerrchan := make(chan error)
-	sigchan := make(chan os.Signal)
+	sigchan := make(chan os.Signal, 3)
 
 	// wait for SIGINT, SIGTERM, SIGQUIT
 	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM,

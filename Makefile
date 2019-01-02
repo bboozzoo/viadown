@@ -9,7 +9,9 @@ GO_LDFLAGS = \
 DEPS = \
 	github.com/sirupsen/logrus \
 	github.com/stretchr/testify/assert \
-
+	github.com/gorilla/mux \
+	github.com/gorilla/handlers \
+	github.com/pkg/errors \
 
 ifeq ($(V),1)
 BUILDV = -v

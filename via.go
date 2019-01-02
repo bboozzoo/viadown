@@ -25,7 +25,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -72,6 +71,7 @@ func NewViaDownloadServer(mirrors *Mirrors, cache *Cache, clientTimeout time.Dur
 	r.HandleFunc("/_viadown/count", vs.countHandler).Methods(http.MethodGet)
 	r.HandleFunc("/_viadown/stats", vs.statsHandler).Methods(http.MethodGet)
 	r.HandleFunc("/_viadown/data", vs.dataDeleteHandler).Methods(http.MethodDelete)
+	r.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(vs.maybeCachedHandler)
 	r.Use(loggingMiddleware)
 	vs.Router = r
 
@@ -136,30 +136,8 @@ func (v *ViaDownloadServer) dataDeleteHandler(w http.ResponseWriter, r *http.Req
 	v.returnOk(w, removedInfo{Removed: removed})
 }
 
-func (v *ViaDownloadServer) localHandler(w http.ResponseWriter, r *http.Request) {
-	v.Router.ServeHTTP(w, r)
-}
-
 func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
-	upath := r.URL.Path
-	log.Debugf("URL path: %v", upath)
-
-	log.Debugf("client headers:")
-	for h, v := range r.Header {
-		log.Debugf("  %v: %v", h, v)
-	}
-
-	switch {
-	case strings.HasPrefix(r.URL.Path, "/_viadown"):
-		v.localHandler(w, r)
-	case r.Method != http.MethodGet:
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "method %q is not supported", r.Method)
-	default:
-		v.maybeCachedHandler(w, r)
-	}
-
+	v.Router.ServeHTTP(w, r)
 }
 
 func (v *ViaDownloadServer) maybeCachedHandler(w http.ResponseWriter, r *http.Request) {

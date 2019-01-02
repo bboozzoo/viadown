@@ -135,6 +135,7 @@ func TestCacheCommit(t *testing.T) {
 	put()
 
 	r, err := ioutil.ReadFile(filepath.Join(td, "foo"))
+	assert.NoError(t, err)
 	assert.Equal(t, r, []byte("hello\n"))
 }
 
@@ -280,5 +281,6 @@ func TestCacheCount(t *testing.T) {
 	assert.NoError(t, err)
 
 	count, err = c.Count()
+	assert.NoError(t, err)
 	assert.Equal(t, CacheCount{Items: 1, TotalSize: 3}, count)
 }

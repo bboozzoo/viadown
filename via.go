@@ -112,7 +112,10 @@ func (v *ViaDownloadServer) countHandler(w http.ResponseWriter, r *http.Request)
 
 func (v *ViaDownloadServer) dataDeleteHandler(w http.ResponseWriter, r *http.Request) {
 	log.Infof("cache purge handler")
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		v.returnError(w, http.StatusBadRequest, errors.New("malformed request"))
+		return
+	}
 	s := r.FormValue("older-than-days")
 	if s == "" {
 		v.returnError(w, http.StatusBadRequest, errors.New("older-than-days not provided"))

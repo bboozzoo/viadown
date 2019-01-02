@@ -108,6 +108,7 @@ func TestViaFromCache(t *testing.T) {
 
 	// create a cache object
 	cto, err := c.Put("foo")
+	assert.NoError(t, err)
 	cto.Write([]byte("foo"))
 	cto.Commit()
 
@@ -137,9 +138,9 @@ func TestViaFromCache(t *testing.T) {
 	assert.Equal(t, "foo", rec.Body.String())
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "3",
-		rec.HeaderMap.Get("Content-Length"))
+		rec.Result().Header.Get("Content-Length"))
 	assert.Equal(t, "application/octet-stream",
-		rec.HeaderMap.Get("Content-Type"))
+		rec.Result().Header.Get("Content-Type"))
 
 }
 

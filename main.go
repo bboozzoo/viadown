@@ -104,12 +104,8 @@ func main() {
 
 	addr := *optListenAddr
 	server := http.Server{
-		Addr: addr,
-		Handler: &ViaDownloadServer{
-			Mirrors:       &m,
-			Cache:         &cache,
-			ClientTimeout: *optTimeout,
-		},
+		Addr:    addr,
+		Handler: NewViaDownloadServer(&m, &cache, *optTimeout),
 	}
 	log.Infof("listen on %v", addr)
 

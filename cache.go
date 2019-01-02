@@ -26,16 +26,36 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
+	"sync"
+	"time"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
+type ReadSeekCloser interface {
+	io.ReadSeeker
+	io.Closer
+}
+
+type CacheStats struct {
+	Hit  int
+	Miss int
+}
+
+type CacheCount struct {
+	// Items is the count of all items (files) in the cache
+	Items uint64
+	// TotalSize is the aggregate size of all items in bytes
+	TotalSize uint64
+}
+
 type Cache struct {
-	Dir   string
-	Stats struct {
-		Hit  int
-		Miss int
-	}
+	Dir       string
+	dirLock   sync.Mutex
+	stats     CacheStats
+	statsLock sync.Mutex
 }
 
 func (c *Cache) getCachePath(name string) string {
@@ -44,19 +64,20 @@ func (c *Cache) getCachePath(name string) string {
 	return cpath
 }
 
-func (c *Cache) Get(name string) (io.ReadCloser, int64, error) {
+func (c *Cache) Get(name string) (ReadSeekCloser, int64, error) {
+	c.dirLock.Lock()
+	defer c.dirLock.Unlock()
+
 	f, err := os.Open(c.getCachePath(name))
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Infof("cache miss for %v", name)
-			c.Stats.Miss++
+			c.miss()
 		}
 		log.Errorf("cache get error: %v", err)
 		return nil, 0, err
 	}
 
-	log.Infof("cache hit for %v", name)
-	c.Stats.Hit++
+	c.hit()
 
 	fi, err := f.Stat()
 	if err != nil {
@@ -69,6 +90,9 @@ func (c *Cache) Get(name string) (io.ReadCloser, int64, error) {
 }
 
 func (c *Cache) Put(name string) (*CacheTemporaryObject, error) {
+	c.dirLock.Lock()
+	defer c.dirLock.Unlock()
+
 	cpath := c.getCachePath(name)
 
 	if err := os.MkdirAll(path.Dir(cpath), 0700); err != nil {
@@ -89,28 +113,111 @@ func (c *Cache) Put(name string) (*CacheTemporaryObject, error) {
 	return &ct, nil
 }
 
+func (c *Cache) Stats() CacheStats {
+	c.statsLock.Lock()
+	defer c.statsLock.Unlock()
+	return c.stats
+}
+
+func (c *Cache) hit() {
+	c.statsLock.Lock()
+	defer c.statsLock.Unlock()
+	c.stats.Hit++
+}
+
+func (c *Cache) miss() {
+	c.statsLock.Lock()
+	defer c.statsLock.Unlock()
+	c.stats.Miss++
+}
+
+func (c *Cache) Count() (CacheCount, error) {
+	c.dirLock.Lock()
+	defer c.dirLock.Unlock()
+
+	count := CacheCount{}
+	walkCount := func(name string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return errors.Wrapf(err, "cannot process path %v", name)
+		}
+		if fi.IsDir() {
+			return nil
+		}
+		count.Items++
+		count.TotalSize += uint64(fi.Size())
+		return nil
+	}
+	err := filepath.Walk(c.Dir, walkCount)
+	return count, err
+}
+
+type PurgeSelector struct {
+	OlderThan time.Time
+}
+
+func (c *Cache) Purge(what PurgeSelector) (removed uint64, err error) {
+	c.dirLock.Lock()
+	defer c.dirLock.Unlock()
+
+	log.Infof("cache purge: older than %v", what.OlderThan)
+
+	var rmError error
+	walkPurgeSelected := func(name string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return errors.Wrapf(err, "cannot process path %v", name)
+		}
+		if fi.IsDir() {
+			return nil
+		}
+		remove := true
+		if !what.OlderThan.IsZero() && fi.ModTime().After(what.OlderThan) {
+			remove = false
+		}
+		if remove {
+			log.Infof("removing %v", name)
+			err := os.Remove(name)
+			if err != nil && rmError == nil {
+				rmError = errors.Wrapf(err, "cannot remove entry %v", name)
+			}
+			if err == nil {
+				removed++
+			}
+		}
+		return nil
+	}
+	err = filepath.Walk(c.Dir, walkPurgeSelected)
+	return removed, err
+}
+
 type CacheTemporaryObject struct {
 	*os.File
 	targetName string
 	curName    string
+	aborted    bool
 }
 
 func (ct *CacheTemporaryObject) Commit() error {
+	if ct.aborted {
+		return nil
+	}
+
 	if err := ct.Close(); err != nil {
 		return err
 	}
 
-	log.Debugf("committing entry %v to %v", ct.curName, ct.targetName)
 	if err := os.Rename(ct.curName, ct.targetName); err != nil {
 		log.Errorf("rename %v -> %v failed: %v",
 			ct.curName, ct.targetName, err)
 		return err
 	}
+	log.Debugf("commited cache entry %v to %v", ct.curName, ct.targetName)
 	return nil
 }
 
-func (ct *CacheTemporaryObject) Discard() error {
+func (ct *CacheTemporaryObject) Abort() error {
 	log.Debugf("discard entry %v", ct.curName)
+	ct.aborted = true
+
 	if err := ct.Close(); err != nil {
 		return err
 	}

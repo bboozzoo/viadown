@@ -100,7 +100,9 @@ func TestViaFromCache(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	found, err := doFromCache("foo", rec, &c)
+	r, err := http.NewRequest(http.MethodGet, "/foo", nil)
+	assert.NoError(t, err)
+	found, err := doFromCache("foo", rec, r, &c)
 	assert.NoError(t, err)
 	assert.False(t, found)
 
@@ -114,8 +116,10 @@ func TestViaFromCache(t *testing.T) {
 	err = os.Chmod(cpath, 0200)
 	assert.NoError(t, err)
 
+	r, err = http.NewRequest(http.MethodGet, "/foo", nil)
+	assert.NoError(t, err)
 	rec = httptest.NewRecorder()
-	found, err = doFromCache("foo", rec, &c)
+	found, err = doFromCache("foo", rec, r, &c)
 	assert.Error(t, err)
 	assert.False(t, found)
 
@@ -123,8 +127,10 @@ func TestViaFromCache(t *testing.T) {
 	err = os.Chmod(cpath, 0600)
 	assert.NoError(t, err)
 
+	r, err = http.NewRequest(http.MethodGet, "/foo", nil)
+	assert.NoError(t, err)
 	rec = httptest.NewRecorder()
-	found, err = doFromCache("foo", rec, &c)
+	found, err = doFromCache("foo", rec, r, &c)
 	assert.NoError(t, err)
 	assert.True(t, found)
 

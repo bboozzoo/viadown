@@ -22,7 +22,10 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -31,6 +34,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -44,6 +49,95 @@ type ViaDownloadServer struct {
 	Mirrors       *Mirrors
 	Cache         *Cache
 	ClientTimeout time.Duration
+	Router        *mux.Router
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	buf := bytes.Buffer{}
+	lh := handlers.LoggingHandler(&buf, next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lh.ServeHTTP(w, r)
+		log.Info(strings.TrimSpace(buf.String()))
+		buf.Reset()
+	})
+}
+
+func NewViaDownloadServer(mirrors *Mirrors, cache *Cache, clientTimeout time.Duration) *ViaDownloadServer {
+	vs := &ViaDownloadServer{
+		Mirrors:       mirrors,
+		Cache:         cache,
+		ClientTimeout: clientTimeout,
+	}
+	r := mux.NewRouter()
+	r.HandleFunc("/_viadown/count", vs.countHandler).Methods(http.MethodGet)
+	r.HandleFunc("/_viadown/stats", vs.statsHandler).Methods(http.MethodGet)
+	r.HandleFunc("/_viadown/data", vs.dataDeleteHandler).Methods(http.MethodDelete)
+	r.Use(loggingMiddleware)
+	vs.Router = r
+
+	return vs
+}
+
+func (v *ViaDownloadServer) returnError(w http.ResponseWriter, status int, err error) {
+	type apiError struct {
+		Error string
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.Encode(apiError{Error: err.Error()})
+}
+
+func (v *ViaDownloadServer) returnOk(w http.ResponseWriter, what interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	enc := json.NewEncoder(w)
+	enc.Encode(what)
+}
+
+func (v *ViaDownloadServer) statsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Infof("stats handler")
+	v.returnOk(w, v.Cache.Stats())
+}
+
+func (v *ViaDownloadServer) countHandler(w http.ResponseWriter, r *http.Request) {
+	log.Infof("count handler")
+	count, err := v.Cache.Count()
+	if err != nil {
+		v.returnError(w, http.StatusInternalServerError, err)
+		return
+	}
+	v.returnOk(w, count)
+}
+
+func (v *ViaDownloadServer) dataDeleteHandler(w http.ResponseWriter, r *http.Request) {
+	log.Infof("cache purge handler")
+	r.ParseForm()
+	s := r.FormValue("older-than-days")
+	if s == "" {
+		v.returnError(w, http.StatusBadRequest, errors.New("older-than-days not provided"))
+		return
+	}
+	olderThanDays, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		v.returnError(w, http.StatusBadRequest, errors.New("older-than-days is not an integer"))
+		return
+	}
+	removed, err := v.Cache.Purge(PurgeSelector{
+		OlderThan: time.Now().Add(-time.Duration(olderThanDays) * 24 * time.Hour),
+	})
+	if err != nil {
+		v.returnError(w, http.StatusInternalServerError, err)
+		return
+	}
+	type removedInfo struct {
+		Removed uint64
+	}
+	v.returnOk(w, removedInfo{Removed: removed})
+}
+
+func (v *ViaDownloadServer) localHandler(w http.ResponseWriter, r *http.Request) {
+	v.Router.ServeHTTP(w, r)
 }
 
 func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -56,11 +150,26 @@ func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Debugf("  %v: %v", h, v)
 	}
 
+	switch {
+	case strings.HasPrefix(r.URL.Path, "/_viadown"):
+		v.localHandler(w, r)
+	case r.Method != http.MethodGet:
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "method %q is not supported", r.Method)
+	default:
+		v.maybeCachedHandler(w, r)
+	}
+
+}
+
+func (v *ViaDownloadServer) maybeCachedHandler(w http.ResponseWriter, r *http.Request) {
+	upath := r.URL.Path
+
 	if since, err := http.ParseTime(r.Header.Get("If-Modified-Since")); err == nil {
 		log.Debugf("has modified since: %v, poke upstream first", since)
 	} else {
 		// no modified since header, try to get from cache
-		found, err := doFromCache(upath, w, v.Cache)
+		found, err := doFromCache(upath, w, r, v.Cache)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
@@ -105,7 +214,7 @@ func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func doFromCache(name string, w http.ResponseWriter, cache *Cache) (bool, error) {
+func doFromCache(name string, w http.ResponseWriter, r *http.Request, cache *Cache) (bool, error) {
 	cachedr, sz, err := cache.Get(name)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -118,12 +227,9 @@ func doFromCache(name string, w http.ResponseWriter, cache *Cache) (bool, error)
 	log.Debugf("getting from cache, size: %v", sz)
 	defer cachedr.Close()
 
-	w.Header().Set("Content-Length", strconv.FormatInt(sz, 10))
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.WriteHeader(http.StatusOK)
-	if _, err := io.Copy(w, cachedr); err != nil {
-		log.Debugf("copy from cached failed: %v", err)
-	}
+	http.ServeContent(w, r, name, time.Now(), cachedr)
+
 	return true, nil
 }
 
@@ -156,6 +262,7 @@ func doFromUpstream(name string, client *http.Client, req *http.Request,
 	if err != nil {
 		return ErrInternal
 	}
+	defer out.Commit()
 
 	// setup TeeReader so that the data makes to the disk while it's also
 	// sent to the original requester
@@ -175,14 +282,8 @@ func doFromUpstream(name string, client *http.Client, req *http.Request,
 		// we've already sent a status header, we're just streaming data
 		// now, if that fails, discard any data cached so far
 		log.Errorf("copy failed: %v, discarding cache entry", err)
-		if err := out.Discard(); err != nil {
+		if err := out.Abort(); err != nil {
 			log.Errorf("failed to discard cache entry: %v", err)
-		}
-	} else {
-		if err := out.Commit(); err != nil {
-			log.Errorf("commit failed: %v", err)
-		} else {
-			log.Infof("successfully downloaded %v", name)
 		}
 	}
 	log.Debugf("upstream download finished")

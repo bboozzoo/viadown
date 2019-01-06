@@ -18,9 +18,11 @@ ifeq ($(V),1)
 BUILDV = -v
 endif
 
-build:
-	$(GO) generate ./...
+build: generate
 	$(GO) build $(GO_LDFLAGS) $(BUILDV)
+
+generate:
+	$(GO) generate ./...
 
 install:
 	$(GO) install $(GO_LDFLAGS) $(BUILDV)
@@ -34,7 +36,7 @@ get-deps:
 		go get -v -u "$$d"; \
 	done
 
-test:
+test: generate
 	$(GO) test -v $(PKGS)
 
 cover: coverage
@@ -52,4 +54,4 @@ coverage:
 		cat coverage-tmp.out |grep -v 'mode:' >> coverage.out; \
 	done
 
-.PHONY: build clean test check cover htmlcover coverage
+.PHONY: build clean test check cover htmlcover coverage generate

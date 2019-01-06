@@ -12,12 +12,14 @@ DEPS = \
 	github.com/gorilla/mux \
 	github.com/gorilla/handlers \
 	github.com/pkg/errors \
+	github.com/mjibson/esc
 
 ifeq ($(V),1)
 BUILDV = -v
 endif
 
 build:
+	$(GO) generate ./...
 	$(GO) build $(GO_LDFLAGS) $(BUILDV)
 
 install:

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css" integrity="sha384-GJzZqFGwb1QTTN6wy59ffF1BuGJpLSa9DkKMp0DgiMDm4iYMj70gZWKYbI706tWS" crossorigin="anonymous">
+
+    <title>viadown</title>
+  </head>
+  <body>
+      <main>
+          <div class="container">
+              <h1>viadown admininistration</h1>
+              <h2>Stats</h2>
+              <div class="col-4">
+                  <table class="table table-borderless">
+                      <tbody>
+                          <tr>
+                              <td>Files</td><td id="files-count">0</td>
+                          </tr>
+                          <tr>
+                              <td>Data (MiB)</td><td id="data-size">0</td>
+                          </tr>
+                          <tr>
+                              <td>Cache Hits</td><td id="cache-hits">0</td>
+                          </tr>
+                          <tr>
+                              <td>Cache Misses</td><td id="cache-misses">0</td>
+                          </tr>
+                      </tbody>
+                  </table>
+              </div>
+              <h2>Cache Control</h2>
+              <div>
+                  <div class="row">
+                      <div class="col-1"><button type="button" class="btn btn-danger" id="clear-cache">Clear</button></div>
+                      <div class="col"><div id="clear-status"></div></div>
+                  </div>
+              </div>
+          </div>
+      </main>
+      <script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha384-tsQFqpEReu7ZLhBV2VZlAu7zcOV+rXbYlF2cqB8txI/8aZajjp4Bqd+V6D5IgvKT" crossorigin="anonymous"></script>
+      <script>
+       setInProgress = function(what) {
+           console.debug("in progress");
+           what.text("Refreshing...");
+       };
+       setError = function(jqXHR, what) {
+           var err = JSON.parse(jqXHR.responseText);
+           console.debug(err);
+           if (err.Error != "") {
+               what.text("ERROR: "+err.Error);
+           }
+       };
+       setCount = function(data, status, jqXHR) {
+           console.debug("got count:"+data);
+           console.debug(data);
+           $("#files-count").text(data.Items);
+           var sz = data.TotalSize / 1024 / 1024;
+           // size is in bytes
+           $("#data-size").text(sz.toFixed(2));
+       };
+       setCacheStats = function(data, status, jqXHR) {
+           console.debug("got cache stats:");
+           console.debug(data);
+           $("#cache-hits").text(data.Hit);
+           $("#cache-misses").text(data.Miss);
+       };
+       setRemovedStats = function(data, status, jqXHR) {
+           console.debug(data);
+           $("#clear-status").text("Removed " + data.Removed + " items");
+       };
+       clearCache = function() {
+           console.debug("clear cache");
+           $.ajax({
+               type: "DELETE",
+               url: "data?older-than-days=30",
+               beforeSend: function() { $("#clear-status").text(""); $("#clear-cache").text("Waiting..."); },
+               success: setRemovedStats,
+               error: function(xhr) { setError(xhr, $("#clear-status")); },
+               complete: function() { $("#clear-cache").text("Clear"); },
+           });
+       };
+       reloadStats = function() {
+           $.ajax({
+               type: "GET",
+               beforeSend: function() { setInProgress($("#cache-hits, #cache-misses")); },
+               error: function(xhr) { setError(xhr, $("#cache-hits, #cache-misses")); },
+               success: setCacheStats,
+               url: "stats",
+           });
+           $.ajax({
+               type: "GET",
+               beforeSend: function() { setInProgress($("#files-count, #data-size")); },
+               error: function(xhr) { setError(xhr, $("#files-count, #data-size")); },
+               success: setCount,
+               url: "count",
+           });
+       };
+
+       $("#clear-cache").click(clearCache);
+
+       $(document).ready(function() {
+           reloadStats();
+       });
+      </script>
+  </body>
+</html>

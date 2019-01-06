@@ -36,6 +36,8 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/bboozzoo/viadown/assets"
 )
 
 var (
@@ -49,6 +51,8 @@ type ViaDownloadServer struct {
 	Cache         *Cache
 	ClientTimeout time.Duration
 	Router        *mux.Router
+	vfs           http.FileSystem
+	httpFs        http.Handler
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
@@ -62,20 +66,30 @@ func loggingMiddleware(next http.Handler) http.Handler {
 }
 
 func NewViaDownloadServer(mirrors *Mirrors, cache *Cache, clientTimeout time.Duration) *ViaDownloadServer {
+	vfs := assets.FS(false)
 	vs := &ViaDownloadServer{
 		Mirrors:       mirrors,
 		Cache:         cache,
 		ClientTimeout: clientTimeout,
+		vfs:           vfs,
+		httpFs:        http.FileServer(vfs),
 	}
 	r := mux.NewRouter()
 	r.HandleFunc("/_viadown/count", vs.countHandler).Methods(http.MethodGet)
 	r.HandleFunc("/_viadown/stats", vs.statsHandler).Methods(http.MethodGet)
 	r.HandleFunc("/_viadown/data", vs.dataDeleteHandler).Methods(http.MethodDelete)
+	r.PathPrefix("/_viadown/static").Handler(http.StripPrefix("/_viadown/static", vs.httpFs))
+	r.PathPrefix("/_viadown").Handler(http.StripPrefix("/_viadown", vs.httpFs))
 	r.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(vs.maybeCachedHandler)
 	r.Use(loggingMiddleware)
 	vs.Router = r
 
 	return vs
+}
+
+func (v *ViaDownloadServer) indexHandler(w http.ResponseWriter, r *http.Request) {
+	log.Info("index handler")
+	http.StripPrefix("/_viadown", v.httpFs)
 }
 
 func (v *ViaDownloadServer) returnError(w http.ResponseWriter, status int, err error) {

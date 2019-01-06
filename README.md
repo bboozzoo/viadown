@@ -54,8 +54,10 @@ Principle of operation is illustrated below:
 ## Building
 
 ```
+go get -v github.com/mjibson/esc
 go get -v github.com/bboozzoo/viadown
-viadown
+go generate github.com/bboozzoo/viadown/...
+go build github.com/bboozzoo/viadown
 ```
 
 If you wish to deploy `viadown` to a NAS or a similar always-on device but
@@ -125,9 +127,9 @@ http://archlinux.my-universe.com/
 
 ## TODO
 
-- [ ] `Range` requests support
+- [x] `Range` requests support
+- [x] minimal usable dashboard, http://localhost:9999/_viadown
+- [x] expvar for cache/hit miss, seen clients etc?
+- [x] make sure to allow only GET requests
 - [ ] old file cleanup, `github.com/robfig/cron` maybe?
-- [ ] minimal usable dashboard
-- [ ] expvar for cache/hit miss, seen clients etc?
-- [ ] make sure to allow only GET requests
 - [ ] graceful shutdown on signal (SIGINT/SIGTERM)

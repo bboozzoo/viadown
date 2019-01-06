@@ -79,7 +79,8 @@ func NewViaDownloadServer(mirrors *Mirrors, cache *Cache, clientTimeout time.Dur
 	r.HandleFunc("/_viadown/stats", vs.statsHandler).Methods(http.MethodGet)
 	r.HandleFunc("/_viadown/data", vs.dataDeleteHandler).Methods(http.MethodDelete)
 	r.PathPrefix("/_viadown/static").Handler(http.StripPrefix("/_viadown/static", vs.httpFs))
-	r.PathPrefix("/_viadown").Handler(http.StripPrefix("/_viadown", vs.httpFs))
+	r.PathPrefix("/_viadown/").Handler(http.StripPrefix("/_viadown/", vs.httpFs))
+	r.Handle("/_viadown", http.RedirectHandler("/_viadown/", http.StatusMovedPermanently))
 	r.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(vs.maybeCachedHandler)
 	r.Use(loggingMiddleware)
 	vs.Router = r

@@ -38,16 +38,24 @@ import (
 )
 
 var (
-	optDebug      = flag.Bool("debug", false, "Enable debug logging")
-	optCacheRoot  = flag.String("cache-root", "./tmp", "Cache directory path")
-	optListenAddr = flag.String("listen", ":8080", "Listen address")
-	optMirrors    = flag.String("mirrors", "", "Mirror list file")
-	optTimeout    = flag.Duration("client-timeout", 15*time.Second, "Forward request timeout")
-	optVersion    = flag.Bool("version", false, "Show version")
-	optSyslog     = flag.Bool("syslog", false, "Enable logging to syslog")
-	optPidfile    = flag.String("pidfile", "", "Write self PID to this file")
+	optDebug         = flag.Bool("debug", false, "Enable debug logging")
+	optCacheRoot     = flag.String("cache-root", "./tmp", "Cache directory path")
+	optListenAddr    = flag.String("listen", ":8080", "Listen address")
+	optMirrors       = flag.String("mirrors", "", "Mirror list file")
+	optTimeout       = flag.Duration("client-timeout", 15*time.Second, "Forward request timeout")
+	optVersion       = flag.Bool("version", false, "Show version")
+	optSyslog        = flag.Bool("syslog", false, "Enable logging to syslog")
+	optPidfile       = flag.String("pidfile", "", "Write self PID to this file")
+	optPurgeInterval = flag.Duration("purge-interval", defaultCachePurgeInterval, "Cache purge interval")
 
 	Version = "(unknown)"
+
+	// try purging every 24h
+	defaultCachePurgeInterval = 24 * time.Hour
+	defaultPurgePolicy        = PurgeSelector{
+		// older than 30 days
+		OlderThan: 30 * 24 * time.Hour,
+	}
 )
 
 func main() {
@@ -102,6 +110,8 @@ func main() {
 		Dir: *optCacheRoot,
 	}
 
+	cleaner := NewAutomaticCacheCleaner(&cache, *optPurgeInterval, defaultPurgePolicy)
+
 	addr := *optListenAddr
 	server := http.Server{
 		Addr:    addr,
@@ -120,10 +130,16 @@ func main() {
 		listenerrchan <- server.ListenAndServe()
 	}()
 
+	// start automatic cleaner
+	cleaner.Go()
+	log.Infof("automatic cache purge every %v, starting now", *optPurgeInterval)
+
 	select {
 	case fail := <-listenerrchan:
 		log.Fatalf("listen failed: %v", fail)
 	case sig := <-sigchan:
 		log.Infof("exiting on signal... %s", sig)
 	}
+
+	cleaner.Kill()
 }

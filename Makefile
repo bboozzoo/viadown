@@ -12,7 +12,8 @@ DEPS = \
 	github.com/gorilla/mux \
 	github.com/gorilla/handlers \
 	github.com/pkg/errors \
-	github.com/mjibson/esc
+	github.com/mjibson/esc \
+	gopkg.in/tomb.v2
 
 ifeq ($(V),1)
 BUILDV = -v

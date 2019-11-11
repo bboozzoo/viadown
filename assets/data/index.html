@@ -13,7 +13,7 @@
   <body>
       <main>
           <div class="container">
-              <h1>viadown admininistration</h1>
+              <h1>viadown administration</h1>
               <h2>Stats</h2>
               <div class="col-4">
                   <table class="table table-borderless">
@@ -29,6 +29,9 @@
                           </tr>
                           <tr>
                               <td>Cache Misses</td><td id="cache-misses">0</td>
+                          </tr>
+                          <tr>
+                              <td>Last Purge</td><td id="cache-last-purge">-</td>
                           </tr>
                       </tbody>
                   </table>
@@ -68,10 +71,18 @@
            console.debug(data);
            $("#cache-hits").text(data.Hit);
            $("#cache-misses").text(data.Miss);
+           let d = new Date(data.LastPurge);
+           if (d > 0) {
+               $("#cache-last-purge").text(d.toLocaleString());
+           } else {
+               $("#cache-last-purge").text("-");
+           }
        };
        setRemovedStats = function(data, status, jqXHR) {
            console.debug(data);
            $("#clear-status").text("Removed " + data.Removed + " items");
+
+           reloadStats();
        };
        clearCache = function() {
            console.debug("clear cache");

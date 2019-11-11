@@ -170,7 +170,7 @@ func (c *Cache) Purge(what PurgeSelector) (removed uint64, err error) {
 			return nil
 		}
 		remove := true
-		if !what.OlderThan.IsZero() && fi.ModTime().After(what.OlderThan) {
+		if what.OlderThan != 0 && now.Sub(fi.ModTime()) < what.OlderThan {
 			remove = false
 		}
 		if remove {

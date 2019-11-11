@@ -242,13 +242,13 @@ func TestCachePurgeSelected(t *testing.T) {
 	assert.NoError(t, err)
 
 	now := time.Now()
-	before := now.Add(-5 * 24 * time.Hour)
+	olderThan := 5 * 24 * time.Hour
 
 	// make too-old old enough
-	err = os.Chtimes(filepath.Join(td, "too-old"), now, before.Add(-time.Hour))
+	err = os.Chtimes(filepath.Join(td, "too-old"), now, now.Add(-olderThan).Add(-time.Hour))
 	assert.NoError(t, err)
 
-	removed, err := c.Purge(PurgeSelector{OlderThan: before})
+	removed, err := c.Purge(PurgeSelector{OlderThan: olderThan})
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(1), removed)
 
@@ -256,7 +256,7 @@ func TestCachePurgeSelected(t *testing.T) {
 	assert.FileExists(t, filepath.Join(td, "recent-enough"))
 
 	// calling again does not break
-	removed, err = c.Purge(PurgeSelector{OlderThan: before})
+	removed, err = c.Purge(PurgeSelector{OlderThan: olderThan})
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(0), removed)
 }

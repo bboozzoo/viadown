@@ -142,7 +142,7 @@ func (v *ViaDownloadServer) dataDeleteHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 	removed, err := v.Cache.Purge(PurgeSelector{
-		OlderThan: time.Now().Add(-time.Duration(olderThanDays) * 24 * time.Hour),
+		OlderThan: time.Duration(olderThanDays) * 24 * time.Hour,
 	})
 	if err != nil {
 		v.returnError(w, http.StatusInternalServerError, err)

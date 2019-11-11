@@ -40,8 +40,9 @@ type ReadSeekCloser interface {
 }
 
 type CacheStats struct {
-	Hit  int
-	Miss int
+	Hit       int
+	Miss      int
+	LastPurge time.Time
 }
 
 type CacheCount struct {
@@ -152,12 +153,15 @@ func (c *Cache) Count() (CacheCount, error) {
 }
 
 type PurgeSelector struct {
-	OlderThan time.Time
+	OlderThan time.Duration
 }
 
 func (c *Cache) Purge(what PurgeSelector) (removed uint64, err error) {
 	c.dirLock.Lock()
 	defer c.dirLock.Unlock()
+
+	now := time.Now()
+	c.stats.LastPurge = now
 
 	log.Infof("cache purge: older than %v", what.OlderThan)
 

@@ -15,32 +15,38 @@
           <div class="container">
               <h1>viadown administration</h1>
               <h2>Stats</h2>
-              <div class="col-4">
-                  <table class="table table-borderless">
-                      <tbody>
-                          <tr>
-                              <td>Files</td><td id="files-count">0</td>
-                          </tr>
-                          <tr>
-                              <td>Data (MiB)</td><td id="data-size">0</td>
-                          </tr>
-                          <tr>
-                              <td>Cache Hits</td><td id="cache-hits">0</td>
-                          </tr>
-                          <tr>
-                              <td>Cache Misses</td><td id="cache-misses">0</td>
-                          </tr>
-                          <tr>
-                              <td>Last Purge</td><td id="cache-last-purge">-</td>
-                          </tr>
-                      </tbody>
-                  </table>
+              <div class="row">
+                  <div class="row col-md-auto">
+                      <table class="table table-borderless">
+                          <tbody>
+                              <tr>
+                                  <td>Files</td><td id="files-count">0</td>
+                              </tr>
+                              <tr>
+                                  <td>Data (MiB)</td><td id="data-size">0</td>
+                              </tr>
+                              <tr>
+                                  <td>Cache Hits</td><td id="cache-hits">0</td>
+                              </tr>
+                              <tr>
+                                  <td>Cache Misses</td><td id="cache-misses">0</td>
+                              </tr>
+                          </tbody>
+                      </table>
+                  </div>
               </div>
               <h2>Cache Control</h2>
-              <div>
-                  <div class="row">
-                      <div class="col-1"><button type="button" class="btn btn-danger" id="clear-cache">Clear</button></div>
-                      <div class="col"><div id="clear-status"></div></div>
+              <div class="row">
+                  <div class="col-md-auto"><button type="button" class="btn btn-danger" id="clear-cache">Clear now</button></div>
+                  <div class="col-md-auto"><div id="clear-status"></div></div>
+              </div>
+              <div class="row pt-3">
+                  <div class="col-md-auto">
+                      <h4>Cache clear history</h3>
+                      <table id="purge-history" class="table table-borderless">
+                      <tbody>
+                      </tbody>
+                      </table>
                   </div>
               </div>
           </div>
@@ -71,16 +77,27 @@
            console.debug(data);
            $("#cache-hits").text(data.Hit);
            $("#cache-misses").text(data.Miss);
-           let d = new Date(data.LastPurge);
-           if (d > 0) {
-               $("#cache-last-purge").text(d.toLocaleString());
-           } else {
-               $("#cache-last-purge").text("-");
+           let domTable = $("#purge-history").find("tbody");
+           // remove everything from table
+           domTable.empty();
+           for (let i in data.PurgeHistory) {
+               let event = data.PurgeHistory[i]
+               console.debug("history event:");
+               console.debug(event);
+               let d = new Date(event.When);
+               if (d == 0) {
+                   continue;
+               }
+               let when = d.toLocaleString();
+               let domRow = $("<tr>");
+               domRow.append($("<td>").text(when));
+               domRow.append($("<td>").text("removed " + event.Removed + " items"));
+               domTable.append(domRow);
            }
        };
        setRemovedStats = function(data, status, jqXHR) {
-           console.debug(data);
-           $("#clear-status").text("Removed " + data.Removed + " items");
+           /* console.debug(data);
+            * $("#clear-status").text("Removed " + data.Removed + " items"); */
 
            reloadStats();
        };
@@ -92,7 +109,7 @@
                beforeSend: function() { $("#clear-status").text(""); $("#clear-cache").text("Waiting..."); },
                success: setRemovedStats,
                error: function(xhr) { setError(xhr, $("#clear-status")); },
-               complete: function() { $("#clear-cache").text("Clear"); },
+               complete: function() { $("#clear-cache").text("Clear now"); },
            });
        };
        reloadStats = function() {

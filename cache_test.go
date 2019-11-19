@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCache(t *testing.T) {
@@ -190,6 +191,36 @@ func TestCacheStats(t *testing.T) {
 
 	// calling repeatedly does not change the stats
 	assert.Equal(t, c.Stats(), CacheStats{Hit: 2, Miss: 1})
+
+	// purge events are recorded
+	now := time.Now()
+	olderThan := 10 * time.Hour
+	err = ioutil.WriteFile(filepath.Join(td, "too-old"), []byte("old"), 0644)
+	assert.NoError(t, err)
+	err = os.Chtimes(filepath.Join(td, "too-old"), now, now.Add(-olderThan).Add(-time.Hour))
+	assert.NoError(t, err)
+	removed, err := c.Purge(PurgeSelector{OlderThan: olderThan})
+	assert.Nil(t, err)
+	assert.Equal(t, uint64(1), removed)
+	stats := c.Stats()
+	require.Len(t, stats.PurgeHistory, 1)
+	assert.WithinDuration(t, time.Now(), stats.PurgeHistory[0].When, time.Second)
+	assert.Equal(t, removed, stats.PurgeHistory[0].Removed)
+	firstEvent := stats.PurgeHistory[0]
+
+	// up to 5 purge events elements are kept
+	for i := 0; i < 10; i++ {
+		currStats := c.Stats()
+		if i < 5 {
+			assert.Equal(t, firstEvent, currStats.PurgeHistory[0])
+		} else {
+			assert.NotEqual(t, firstEvent, currStats.PurgeHistory[0])
+		}
+		_, err = c.Purge(PurgeSelector{OlderThan: olderThan})
+		assert.Nil(t, err)
+	}
+	stats = c.Stats()
+	require.Len(t, stats.PurgeHistory, 5)
 }
 
 func notExist(t *testing.T, p string) {

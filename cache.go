@@ -39,10 +39,17 @@ type ReadSeekCloser interface {
 	io.Closer
 }
 
+type PurgeEvent struct {
+	When    time.Time
+	Removed uint64
+}
+
+const PurgeHistoryMaxCount = 5
+
 type CacheStats struct {
-	Hit       int
-	Miss      int
-	LastPurge time.Time
+	Hit          int
+	Miss         int
+	PurgeHistory []PurgeEvent
 }
 
 type CacheCount struct {
@@ -156,12 +163,22 @@ type PurgeSelector struct {
 	OlderThan time.Duration
 }
 
+func (c *Cache) addPurgeEvent(event PurgeEvent) {
+	if event.When.IsZero() {
+		return
+	}
+	history := c.stats.PurgeHistory
+	if len(history) >= PurgeHistoryMaxCount {
+		history = history[1:]
+	}
+	c.stats.PurgeHistory = append(history, event)
+}
+
 func (c *Cache) Purge(what PurgeSelector) (removed uint64, err error) {
 	c.dirLock.Lock()
 	defer c.dirLock.Unlock()
 
 	now := time.Now()
-	c.stats.LastPurge = now
 
 	log.Infof("cache purge: older than %v", what.OlderThan)
 
@@ -190,6 +207,9 @@ func (c *Cache) Purge(what PurgeSelector) (removed uint64, err error) {
 		return nil
 	}
 	err = filepath.Walk(c.Dir, walkPurgeSelected)
+	if err == nil {
+		c.addPurgeEvent(PurgeEvent{When: now, Removed: removed})
+	}
 	return removed, err
 }
 

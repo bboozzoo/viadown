@@ -11,25 +11,25 @@
     <title>viadown</title>
   </head>
   <body>
-      <main>
+      <main id="app">
           <div class="container">
               <h1>viadown administration</h1>
               <h2>Stats</h2>
               <div class="row">
                   <div class="row col-md-auto">
-                      <table class="table table-borderless">
+                      <table id="stats" class="table table-borderless">
                           <tbody>
                               <tr>
-                                  <td>Files</td><td id="files-count">0</td>
+                                  <td>Files</td><td>{{ cache.stats.count }} </td>
                               </tr>
                               <tr>
-                                  <td>Data (MiB)</td><td id="data-size">0</td>
+                                  <td>Data (MiB)</td><td>{{ cache.stats.size }}</td>
                               </tr>
                               <tr>
-                                  <td>Cache Hits</td><td id="cache-hits">0</td>
+                                  <td>Cache Hits</td><td>{{ cache.stats.hits }}</td>
                               </tr>
                               <tr>
-                                  <td>Cache Misses</td><td id="cache-misses">0</td>
+                                  <td>Cache Misses</td><td>{{ cache.stats.misses }}</td>
                               </tr>
                           </tbody>
                       </table>
@@ -37,102 +37,125 @@
               </div>
               <h2>Cache Control</h2>
               <div class="row">
-                  <div class="col-md-auto"><button type="button" class="btn btn-danger" id="clear-cache">Clear now</button></div>
-                  <div class="col-md-auto"><div id="clear-status"></div></div>
+                  <div class="col-md-auto"><button type="button" class="btn btn-danger" v-on:click="clearCache">{{ cache.statusString }}</button></div>
+                  <div class="col-md-auto"><div id="clear-status">{{ cache.lastClearStatus }}</div></div>
               </div>
               <div class="row pt-3">
                   <div class="col-md-auto">
-                      <h4>Cache clear history</h3>
-                      <table id="purge-history" class="table table-borderless">
-                      <tbody>
-                      </tbody>
+                      <h4>Cache clear history</h4>
+                      <table class="table table-borderless">
+                          <tbody>
+                              <tr v-for="entry in cache.history">
+                                  <td>{{ entry.when }}</td><td>Removed {{ entry.removed }} items</td>
+                              </tr>
+                          </tbody>
                       </table>
                   </div>
               </div>
           </div>
       </main>
-      <script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha384-tsQFqpEReu7ZLhBV2VZlAu7zcOV+rXbYlF2cqB8txI/8aZajjp4Bqd+V6D5IgvKT" crossorigin="anonymous"></script>
+      <script src="https://cdn.jsdelivr.net/npm/vue@2.6.0"></script>
+      <script src="https://cdn.jsdelivr.net/npm/vue-resource@1.5.1"></script>
       <script>
-       setInProgress = function(what) {
-           console.debug("in progress");
-           what.text("Refreshing...");
-       };
-       setError = function(jqXHR, what) {
-           var err = JSON.parse(jqXHR.responseText);
-           console.debug(err);
-           if (err.Error != "") {
-               what.text("ERROR: "+err.Error);
-           }
-       };
-       setCount = function(data, status, jqXHR) {
-           console.debug("got count:"+data);
-           console.debug(data);
-           $("#files-count").text(data.Items);
-           var sz = data.TotalSize / 1024 / 1024;
-           // size is in bytes
-           $("#data-size").text(sz.toFixed(2));
-       };
-       setCacheStats = function(data, status, jqXHR) {
-           console.debug("got cache stats:");
-           console.debug(data);
-           $("#cache-hits").text(data.Hit);
-           $("#cache-misses").text(data.Miss);
-           let domTable = $("#purge-history").find("tbody");
-           // remove everything from table
-           domTable.empty();
-           for (let i in data.PurgeHistory) {
-               let event = data.PurgeHistory[i]
-               console.debug("history event:");
-               console.debug(event);
-               let d = new Date(event.When);
-               if (d == 0) {
-                   continue;
+       let statusStrings = {
+           CLEAR: "Clear now",
+           REFRESHING: "Refreshing...",
+           WAITING: "...",
+           ERROR: "Error"
+       }
+       new Vue({
+           el: "#app",
+           data: {
+               cache: {
+                   purgeOlderThanDays: 30,
+                   stats: {
+                       hits: 0,
+                       misses: 0,
+                       size: 0,
+                       count: 0
+                   },
+                   history: [],
+                   statusString: statusStrings.CLEAR,
+                   clearStatus: "",
                }
-               let when = d.toLocaleString();
-               let domRow = $("<tr>");
-               domRow.append($("<td>").text(when));
-               domRow.append($("<td>").text("removed " + event.Removed + " items"));
-               domTable.append(domRow);
+           },
+           methods: {
+               clearCache: function() {
+                   console.log("clear clicked");
+                   this.$data.cache.statusString = statusStrings.REFRESHING;
+                   this.$data.cache.lastClearStatus = "";
+                   /* how old files to remove */
+                   let olderThan = this.$data.cache.purgeOlderThanDays;
+
+                   this.$http.delete("data?older-than-days=" + olderThan).then(
+                       successResponse => {
+                           this.$data.cache.statusString = statusStrings.CLEAR;
+                           let removedStats = successResponse.body;
+                           /* cache clearned, reload all stats */
+                           this.reloadStats()
+                       },
+                       errorResponse => {
+                           this.$data.cache.statusString = statusStrings.CLEAR;
+                           this.$data.cache.lastClearStatus = statusStrings.ERROR;
+                           let err = errorResponse.body;
+                           if (err.Error != "") {
+                               this.$data.cache.lastClearStatus = "ERROR: " + err.Error;
+                           }
+                       }
+                   );
+               },
+               reloadStats: function() {
+                   for (let prop in this.$data.cache.stats) {
+                       this.$data.cache.stats[prop] = statusStrings.WAITING;
+                   }
+
+                   this.$http.get("stats").then(
+                       successResponse => {
+                           console.log("stats done, got:");
+                           console.log(successResponse);
+                           let stats = successResponse.body;
+                           /* fill trivial stats */
+                           this.$data.cache.stats.hits = stats.Hit;
+                           this.$data.cache.stats.misses = stats.Miss;
+                           /* update cache clear history */
+                           this.$data.cache.history = this.$data.cache.history.splice(0, this.$data.cache.history.splice.length);
+                           for (let i in stats.PurgeHistory) {
+                               let historyEvent = stats.PurgeHistory[i];
+                               console.debug("history event:");
+                               console.debug(historyEvent);
+                               let d = new Date(historyEvent.When);
+                               if (d == 0) {
+                                   continue;
+                               }
+                               let event = {
+                                   when: d.toLocaleString(),
+                                   removed: historyEvent.Removed
+                               }
+                               console.log(event);
+                               this.$data.cache.history.push(event);
+                           }
+                       },
+                       errorResponse => {
+                           console.log("stats error");
+                       }
+                   );
+                   this.$http.get("count").then(
+                       successResponse => {
+                           console.log("count done, got:");
+                           console.log(successResponse);
+                           let count = successResponse.body;
+                           this.$data.cache.stats.size = count.TotalSize / 1024 / 1024;
+                           this.$data.cache.stats.count = count.Items;
+                       },
+                       errorResponse => {
+                           console.log("count error");
+                       }
+                   );
+               }
+           },
+           mounted: function() {
+               this.reloadStats();
            }
-       };
-       setRemovedStats = function(data, status, jqXHR) {
-           /* console.debug(data);
-            * $("#clear-status").text("Removed " + data.Removed + " items"); */
-
-           reloadStats();
-       };
-       clearCache = function() {
-           console.debug("clear cache");
-           $.ajax({
-               type: "DELETE",
-               url: "data?older-than-days=30",
-               beforeSend: function() { $("#clear-status").text(""); $("#clear-cache").text("Waiting..."); },
-               success: setRemovedStats,
-               error: function(xhr) { setError(xhr, $("#clear-status")); },
-               complete: function() { $("#clear-cache").text("Clear now"); },
-           });
-       };
-       reloadStats = function() {
-           $.ajax({
-               type: "GET",
-               beforeSend: function() { setInProgress($("#cache-hits, #cache-misses")); },
-               error: function(xhr) { setError(xhr, $("#cache-hits, #cache-misses")); },
-               success: setCacheStats,
-               url: "stats",
-           });
-           $.ajax({
-               type: "GET",
-               beforeSend: function() { setInProgress($("#files-count, #data-size")); },
-               error: function(xhr) { setError(xhr, $("#files-count, #data-size")); },
-               success: setCount,
-               url: "count",
-           });
-       };
-
-       $("#clear-cache").click(clearCache);
-
-       $(document).ready(function() {
-           reloadStats();
        });
       </script>
   </body>

@@ -144,7 +144,8 @@
                            console.log("count done, got:");
                            console.log(successResponse);
                            let count = successResponse.body;
-                           this.$data.cache.stats.size = count.TotalSize / 1024 / 1024;
+                           let sizeMB = (count.TotalSize / 1024 / 1024).toFixed(2);
+                           this.$data.cache.stats.size = sizeMB;
                            this.$data.cache.stats.count = count.Items;
                        },
                        errorResponse => {

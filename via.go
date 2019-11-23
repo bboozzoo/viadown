@@ -67,6 +67,10 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 func NewViaDownloadServer(mirrors *Mirrors, cache *Cache, clientTimeout time.Duration) *ViaDownloadServer {
 	vfs := assets.FS(false)
+	if assetsDir := os.Getenv("ASSETS_DIR"); assetsDir != "" {
+		log.Infof("using assets directory: %v", assetsDir)
+		vfs = http.Dir(assetsDir)
+	}
 	vs := &ViaDownloadServer{
 		Mirrors:       mirrors,
 		Cache:         cache,

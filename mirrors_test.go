@@ -61,3 +61,11 @@ http://bar.tv
 	// the list remains unchanged
 	assert.Nil(t, m)
 }
+
+func TestHasMoreMirrors(t *testing.T) {
+	m := Mirrors([]string{"foo", "bar"})
+	assert.True(t, HasMoreMirrors(0, m))
+	assert.False(t, HasMoreMirrors(1, m))
+	assert.False(t, HasMoreMirrors(2, m))
+	assert.False(t, HasMoreMirrors(5, m))
+}

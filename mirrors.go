@@ -68,3 +68,7 @@ func LoadMirrors(path string) (Mirrors, error) {
 	log.Infof("got %v mirrors", cnt)
 	return mirrors, nil
 }
+
+func HasMoreMirrors(currIdx int, m Mirrors) bool {
+	return (currIdx + 1) < len(m)
+}

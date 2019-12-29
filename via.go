@@ -240,7 +240,7 @@ func (v *ViaDownloadServer) fromUpstreamHandler(w http.ResponseWriter, r *http.R
 	w.Header().Add("Content-Type", "text/plain")
 	fmt.Fprintf(w, "error: mirrors exhausted\n")
 	if lastErr != nil {
-		fmt.Fprintf(w, "error from last mirror: %v\n", lastErr)
+		fmt.Fprintf(w, "error from last mirror:\n - %v\n", lastErr)
 	}
 }
 

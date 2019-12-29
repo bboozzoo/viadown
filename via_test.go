@@ -22,10 +22,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -329,6 +331,7 @@ func TestViaStatic(t *testing.T) {
 	assert.HTTPRedirect(t, via.ServeHTTP, http.MethodGet, "/_viadown", nil)
 	makeFile(t, filepath.Join(fixture.vfsDir, "ok"), nil)
 	assert.HTTPSuccess(t, via.ServeHTTP, http.MethodGet, "/_viadown/ok", nil)
+	assert.HTTPSuccess(t, via.ServeHTTP, http.MethodGet, "/_viadown/", nil)
 }
 
 func TestViaFromCacheTrivial(t *testing.T) {
@@ -356,6 +359,24 @@ func TestViaFromUpstreamSingle(t *testing.T) {
 	require.NoError(t, err)
 	data, _ := ioutil.ReadAll(in)
 	assert.Equal(t, []byte("this is upstream"), data)
+}
+
+func TestViaFromUpstreamBadSingle(t *testing.T) {
+	// upstream returns 200 and data
+	srv := newMockUpstreamServer(t, map[string]mockUpstreamResponse{
+		"/not-ok": {Code: http.StatusUnauthorized, Body: "no"},
+	})
+	defer srv.Close()
+
+	fixture := setupVia(t, []string{srv.URL})
+	via := fixture.via
+
+	rec := httptest.NewRecorder()
+	req, err := http.NewRequest(http.MethodGet, "/not-ok", nil)
+	require.NoError(t, err)
+	via.ServeHTTP(rec, req)
+	assert.Equal(t, rec.Code, http.StatusNotFound)
+	assert.Regexp(t, `(?m)^error: mirrors exhausted.*`, rec.Body.String())
 }
 
 func TestViaFromUpstreamMany(t *testing.T) {
@@ -406,4 +427,119 @@ func TestViaFromUpstreamNotModified(t *testing.T) {
 	via.ServeHTTP(rec, req)
 	assert.Equal(t, rec.Code, http.StatusNotModified)
 	assert.Empty(t, rec.Body.String())
+}
+
+func TestViaStats(t *testing.T) {
+	fixture := setupVia(t, nil)
+	defer fixture.Cleanup()
+	via := fixture.via
+
+	body := assert.HTTPBody(via.ServeHTTP, http.MethodGet, "/_viadown/stats", nil)
+	assert.NotEmpty(t, body)
+	var stats map[string]interface{}
+	err := json.Unmarshal([]byte(body), &stats)
+	require.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"Hit":          float64(0),
+		"Miss":         float64(0),
+		"PurgeHistory": nil,
+	}, stats)
+}
+
+func TestViaCount(t *testing.T) {
+	fixture := setupVia(t, nil)
+	defer fixture.Cleanup()
+	via := fixture.via
+
+	makeFile(t, filepath.Join(fixture.cacheDir, "foo"), []byte("foo"))
+	makeFile(t, filepath.Join(fixture.cacheDir, "bar"), []byte("bar"))
+
+	body := assert.HTTPBody(via.ServeHTTP, http.MethodGet, "/_viadown/count", nil)
+	assert.NotEmpty(t, body)
+	var count map[string]interface{}
+	err := json.Unmarshal([]byte(body), &count)
+	require.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"Items":     float64(2),
+		"TotalSize": float64(6),
+	}, count)
+}
+
+func TestViaDataDeleteHappy(t *testing.T) {
+	fixture := setupVia(t, nil)
+	defer fixture.Cleanup()
+	via := fixture.via
+	cache := fixture.cache
+
+	makeFile(t, filepath.Join(fixture.cacheDir, "foo"), []byte("foo"))
+
+	now := time.Now()
+	// make it 5 days old
+	olderThan := 5 * 24 * time.Hour
+
+	// make too-old old enough
+	err := os.Chtimes(filepath.Join(fixture.cacheDir, "foo"), now, now.Add(-olderThan).Add(-time.Hour))
+	assert.NoError(t, err)
+
+	body := assert.HTTPBody(via.ServeHTTP, http.MethodDelete, "/_viadown/data",
+		url.Values{
+			"older-than-days": []string{"10"},
+		})
+	assert.NotEmpty(t, body)
+	var count map[string]interface{}
+	err = json.Unmarshal([]byte(body), &count)
+	require.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"Removed": float64(0),
+	}, count)
+
+	_, _, err = cache.Get("foo")
+	require.NoError(t, err)
+
+	body = assert.HTTPBody(via.ServeHTTP, http.MethodDelete, "/_viadown/data",
+		url.Values{
+			"older-than-days": []string{"1"},
+		})
+	assert.NotEmpty(t, body)
+	count = nil
+	err = json.Unmarshal([]byte(body), &count)
+	require.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"Removed": float64(1),
+	}, count)
+
+	_, _, err = cache.Get("foo")
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestViaDataDeleteErrors(t *testing.T) {
+	fixture := setupVia(t, nil)
+	defer fixture.Cleanup()
+	via := fixture.via
+
+	rec := httptest.NewRecorder()
+	req, err := http.NewRequest(http.MethodDelete, "/_viadown/data", nil)
+	require.NoError(t, err)
+	via.ServeHTTP(rec, req)
+	assert.Equal(t, rec.Code, http.StatusBadRequest)
+
+	var errRsp map[string]interface{}
+	err = json.Unmarshal(rec.Body.Bytes(), &errRsp)
+	require.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"Error": "older-than-days not provided",
+	}, errRsp)
+
+	rec = httptest.NewRecorder()
+	req, err = http.NewRequest(http.MethodDelete, "/_viadown/data?older-than-days=abc", nil)
+	require.NoError(t, err)
+	via.ServeHTTP(rec, req)
+	assert.Equal(t, rec.Code, http.StatusBadRequest)
+
+	errRsp = nil
+	err = json.Unmarshal(rec.Body.Bytes(), &errRsp)
+	require.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"Error": "older-than-days is not an integer",
+	}, errRsp)
 }

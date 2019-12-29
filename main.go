@@ -25,6 +25,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log/syslog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -34,7 +35,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	log_syslog "github.com/sirupsen/logrus/hooks/syslog"
-	"log/syslog"
+
+	"github.com/bboozzoo/viadown/assets"
 )
 
 var (
@@ -112,10 +114,16 @@ func main() {
 
 	cleaner := NewAutomaticCacheCleaner(&cache, *optPurgeInterval, defaultPurgePolicy)
 
+	staticVfs := assets.FS(false)
+	if assetsDir := os.Getenv("ASSETS_DIR"); assetsDir != "" {
+		log.Infof("using assets directory: %v", assetsDir)
+		staticVfs = http.Dir(assetsDir)
+	}
+
 	addr := *optListenAddr
 	server := http.Server{
 		Addr:    addr,
-		Handler: NewViaDownloadServer(m, &cache, *optTimeout),
+		Handler: NewViaDownloadServer(m, &cache, *optTimeout, staticVfs),
 	}
 	log.Infof("listen on %v", addr)
 

@@ -36,8 +36,6 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/bboozzoo/viadown/assets"
 )
 
 var (
@@ -65,18 +63,13 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func NewViaDownloadServer(mirrors Mirrors, cache *Cache, clientTimeout time.Duration) *ViaDownloadServer {
-	vfs := assets.FS(false)
-	if assetsDir := os.Getenv("ASSETS_DIR"); assetsDir != "" {
-		log.Infof("using assets directory: %v", assetsDir)
-		vfs = http.Dir(assetsDir)
-	}
+func NewViaDownloadServer(mirrors Mirrors, cache *Cache, clientTimeout time.Duration, staticVfs http.FileSystem) *ViaDownloadServer {
 	vs := &ViaDownloadServer{
 		Mirrors:       mirrors,
 		Cache:         cache,
 		ClientTimeout: clientTimeout,
-		vfs:           vfs,
-		httpFs:        http.FileServer(vfs),
+		vfs:           staticVfs,
+		httpFs:        http.FileServer(staticVfs),
 	}
 	r := mux.NewRouter()
 	r.HandleFunc("/_viadown/count", vs.countHandler).Methods(http.MethodGet)

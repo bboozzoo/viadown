@@ -22,13 +22,17 @@
 package main
 
 import (
+	"errors"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildURL(t *testing.T) {
@@ -90,7 +94,7 @@ func TestCopyHeaders(t *testing.T) {
 
 }
 
-func TestViaFromCache(t *testing.T) {
+func TestDoFromCache(t *testing.T) {
 	td, err := ioutil.TempDir("", "viadown-via-from-cache-test-")
 	assert.NoError(t, err)
 	defer os.RemoveAll(td)
@@ -144,25 +148,43 @@ func TestViaFromCache(t *testing.T) {
 
 }
 
+type mockUpstreamResponse struct {
+	Code int    // if non 0, HTTP status code to be sent, otherwise responds with 200
+	Body string // if len() > 0, data to be sent
+}
+
 type MockUpstreamServer struct {
-	Code int           // if non 0, HTTP status code to be sent, otherwise responds with 200
-	Body []byte        // if len() > 0, data to be sent
-	Req  *http.Request // incoming HTTP request
+	responses map[string]mockUpstreamResponse
+	t         *testing.T
+}
+
+func newMockUpstreamServer(t *testing.T, rsps map[string]mockUpstreamResponse) *httptest.Server {
+	ms := &MockUpstreamServer{
+		t:         t,
+		responses: rsps,
+	}
+	srv := httptest.NewServer(ms)
+	require.NotNil(t, srv)
+	return srv
 }
 
 func (m *MockUpstreamServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if m.Code != 0 {
-		w.WriteHeader(m.Code)
+	u := r.URL.String()
+	mr, ok := m.responses[u]
+	if !ok {
+		assert.FailNowf(m.t, "no mocked response", "requested URL: %q", u)
+	}
+	if mr.Code != 0 {
+		w.WriteHeader(mr.Code)
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
-	if len(m.Body) != 0 {
-		w.Write(m.Body)
+	if len(mr.Body) != 0 {
+		w.Write([]byte(mr.Body))
 	}
-	m.Req = r
 }
 
-func TestViaFromUpstream(t *testing.T) {
+func TestDoFromUpstream4xx(t *testing.T) {
 	td, err := ioutil.TempDir("", "viadown-via-from-cache-test-")
 	assert.NoError(t, err)
 	defer os.RemoveAll(td)
@@ -171,59 +193,217 @@ func TestViaFromUpstream(t *testing.T) {
 		Dir: td,
 	}
 
-	// 1: upstream returns 404
-	ms := &MockUpstreamServer{
-		Code: http.StatusNotFound,
-	}
-	srv := httptest.NewServer(ms)
-	assert.NotNil(t, srv)
+	// upstream returns 404
+	srv := newMockUpstreamServer(t, map[string]mockUpstreamResponse{
+		"/foo": {Code: http.StatusNotFound},
+	})
+	defer srv.Close()
 
 	rec := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
 	err = doFromUpstream("foo", &http.Client{}, req, rec, &c)
-	assert.EqualError(t, err, ErrUpstreamBadStatus.Error())
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	require.NotNil(t, err)
+	assert.Regexp(t, `(?m)^bad upstream ".*" status 404, .*$`, err)
+	assert.False(t, rec.Flushed)
 
-	srv.Close()
+}
 
-	// 2: upstream returns 200 and data
-	ms = &MockUpstreamServer{
-		Body: []byte("foo"),
+func TestDoFromUpstream3xx(t *testing.T) {
+	td, err := ioutil.TempDir("", "viadown-via-from-cache-test-")
+	assert.NoError(t, err)
+	defer os.RemoveAll(td)
+
+	c := Cache{
+		Dir: td,
 	}
-	srv = httptest.NewServer(ms)
-	assert.NotNil(t, srv)
 
-	rec = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodGet, srv.URL, nil)
+	// upstream returns 304 and data
+	srv := newMockUpstreamServer(t, map[string]mockUpstreamResponse{
+		"/bar": {Code: http.StatusNotModified},
+	})
+	defer srv.Close()
+
+	rec := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/bar", nil)
+	err = doFromUpstream("bar", &http.Client{}, req, rec, &c)
+	require.NotNil(t, err)
+	assert.Regexp(t, `(?m)^bad upstream ".*" status 304, .*$`, err)
+	assert.False(t, rec.Flushed)
+
+	// check the error
+	var badStatusErr *errUpstreamBadStatus
+	require.True(t, errors.As(err, &badStatusErr))
+	require.NotNil(t, badStatusErr.Rsp)
+	assert.Equal(t, badStatusErr.Rsp.StatusCode, http.StatusNotModified)
+
+	// since upstream code was not 200, there should be no data in cache
+	_, _, err = c.Get("bar")
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestDoFromUpstreamHappy(t *testing.T) {
+	td, err := ioutil.TempDir("", "viadown-via-from-cache-test-")
+	assert.NoError(t, err)
+	defer os.RemoveAll(td)
+
+	c := Cache{
+		Dir: td,
+	}
+
+	// upstream returns 200 and data
+	srv := newMockUpstreamServer(t, map[string]mockUpstreamResponse{
+		"/foo": {Code: http.StatusOK, Body: "foo"},
+	})
+	defer srv.Close()
+
+	rec := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
 	err = doFromUpstream("foo", &http.Client{}, req, rec, &c)
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, []byte("foo"), rec.Body.Bytes())
-
-	srv.Close()
 
 	// data should have made it to cache
 	in, _, err := c.Get("foo")
 	assert.NoError(t, err)
 	data, _ := ioutil.ReadAll(in)
 	assert.Equal(t, []byte("foo"), data)
+}
 
-	// 3: upstream returns 304 and data
-	ms = &MockUpstreamServer{
-		Code: http.StatusNotModified,
+type viaFixture struct {
+	via      *ViaDownloadServer
+	cache    *Cache
+	td       string
+	cacheDir string
+	vfsDir   string
+}
+
+func (f *viaFixture) Cleanup() {
+	os.RemoveAll(f.td)
+}
+
+func setupVia(t *testing.T, mirrors Mirrors) viaFixture {
+	td, err := ioutil.TempDir("", "viadown-test-")
+	require.NoError(t, err)
+
+	cacheDir := filepath.Join(td, "cache")
+	err = os.MkdirAll(cacheDir, 0755)
+	require.NoError(t, err)
+
+	vfsDir := filepath.Join(td, "vfs")
+	err = os.MkdirAll(cacheDir, 0755)
+	require.NoError(t, err)
+
+	c := Cache{
+		Dir: cacheDir,
 	}
-	srv = httptest.NewServer(ms)
-	assert.NotNil(t, srv)
 
-	rec = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodGet, srv.URL, nil)
-	err = doFromUpstream("bar", &http.Client{}, req, rec, &c)
-	assert.Error(t, err, ErrUpstreamBadStatus.Error())
-	assert.Equal(t, http.StatusNotModified, rec.Code)
+	vfs := http.Dir(vfsDir)
 
-	srv.Close()
+	via := NewViaDownloadServer(mirrors, &c, 10*time.Second, vfs)
 
-	// since upstream code was not 200, there should be no data in cache
-	_, _, err = c.Get("bar")
+	return viaFixture{
+		via:      via,
+		cache:    &c,
+		td:       td,
+		cacheDir: cacheDir,
+		vfsDir:   vfsDir,
+	}
+}
+
+func makeFile(t *testing.T, path string, data []byte) {
+	prefix := filepath.Dir(path)
+	err := os.MkdirAll(prefix, 0755)
+	require.NoError(t, err)
+
+	err = ioutil.WriteFile(path, data, 0644)
+	require.NoError(t, err)
+}
+
+func TestViaStatic(t *testing.T) {
+	fixture := setupVia(t, nil)
+	defer fixture.Cleanup()
+	via := fixture.via
+
+	assert.HTTPError(t, via.ServeHTTP, http.MethodGet, "/_viadown/foo", nil)
+	assert.HTTPRedirect(t, via.ServeHTTP, http.MethodGet, "/_viadown", nil)
+	makeFile(t, filepath.Join(fixture.vfsDir, "ok"), nil)
+	assert.HTTPSuccess(t, via.ServeHTTP, http.MethodGet, "/_viadown/ok", nil)
+}
+
+func TestViaFromCacheTrivial(t *testing.T) {
+	fixture := setupVia(t, nil)
+	defer fixture.Cleanup()
+	via := fixture.via
+
+	assert.HTTPError(t, via.ServeHTTP, http.MethodGet, "/foo", nil)
+	makeFile(t, filepath.Join(fixture.cacheDir, "ok"), []byte("this is cached body"))
+	assert.HTTPBodyContains(t, via.ServeHTTP, http.MethodGet, "/ok", nil, "this is cached body")
+}
+
+func TestViaFromUpstreamSingle(t *testing.T) {
+	// upstream returns 200 and data
+	srv := newMockUpstreamServer(t, map[string]mockUpstreamResponse{
+		"/ok": {Code: http.StatusOK, Body: "this is upstream"},
+	})
+	defer srv.Close()
+
+	fixture := setupVia(t, []string{srv.URL})
+	cache, via := fixture.cache, fixture.via
+
+	assert.HTTPBodyContains(t, via.ServeHTTP, http.MethodGet, "/ok", nil, "this is upstream")
+	in, _, err := cache.Get("ok")
+	require.NoError(t, err)
+	data, _ := ioutil.ReadAll(in)
+	assert.Equal(t, []byte("this is upstream"), data)
+}
+
+func TestViaFromUpstreamMany(t *testing.T) {
+	srv1 := newMockUpstreamServer(t, map[string]mockUpstreamResponse{
+		"/foo": {Code: http.StatusNotFound},
+	})
+	defer srv1.Close()
+
+	srv2 := newMockUpstreamServer(t, map[string]mockUpstreamResponse{
+		"/foo": {Code: http.StatusOK, Body: "this is srv2"},
+	})
+	defer srv2.Close()
+
+	fixture := setupVia(t, []string{srv1.URL, srv2.URL})
+	cache, via := fixture.cache, fixture.via
+
+	assert.HTTPBodyContains(t, via.ServeHTTP, http.MethodGet, "/foo", nil, "this is srv2")
+	in, _, err := cache.Get("foo")
+	require.NoError(t, err)
+	data, _ := ioutil.ReadAll(in)
+	assert.Equal(t, []byte("this is srv2"), data)
+}
+
+func TestViaFromUpstreamBadMirror(t *testing.T) {
+	fixture := setupVia(t, []string{"http://bar-mirror.local:1234"})
+	cache, via := fixture.cache, fixture.via
+
+	assert.HTTPError(t, via.ServeHTTP, http.MethodGet, "/foo", nil)
+	_, _, err := cache.Get("foo")
 	assert.True(t, os.IsNotExist(err))
+}
+
+func TestViaFromUpstreamNotModified(t *testing.T) {
+	srv := newMockUpstreamServer(t, map[string]mockUpstreamResponse{
+		"/foo": {Code: http.StatusNotModified},
+	})
+	defer srv.Close()
+
+	fixture := setupVia(t, []string{srv.URL})
+	via := fixture.via
+
+	makeFile(t, filepath.Join(fixture.cacheDir, "foo"), []byte("this is cached body"))
+
+	rec := httptest.NewRecorder()
+	req, err := http.NewRequest(http.MethodGet, "/foo", nil)
+	req.Header.Add("If-Modified-Since", "Wed, 21 Oct 2015 07:28:00 GMT")
+	require.NoError(t, err)
+	via.ServeHTTP(rec, req)
+	assert.Equal(t, rec.Code, http.StatusNotModified)
+	assert.Empty(t, rec.Body.String())
 }

@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -38,11 +39,26 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	ErrUpstreamFailed    = errors.New("upstream request failed")
-	ErrUpstreamBadStatus = errors.New("upstream returned unexpected status")
-	ErrInternal          = errors.New("internal error")
-)
+type errUpstreamFailed struct {
+	err error
+}
+
+func (e *errUpstreamFailed) Error() string {
+	return fmt.Sprintf("upstream request failed: %v", e.err)
+}
+
+func (e *errUpstreamFailed) Unwrap() error { return e.err }
+
+type errUpstreamBadStatus struct {
+	Upstream string
+	Rsp      *http.Response
+	Body     bytes.Buffer
+}
+
+func (e *errUpstreamBadStatus) Error() string {
+	return fmt.Sprintf("bad upstream %q status %v, response (first %v bytes):\n%s\n",
+		e.Upstream, e.Rsp.StatusCode, e.Body.Len(), e.Body.String())
+}
 
 type ViaDownloadServer struct {
 	Mirrors       Mirrors
@@ -156,13 +172,11 @@ func (v *ViaDownloadServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (v *ViaDownloadServer) maybeCachedHandler(w http.ResponseWriter, r *http.Request) {
-	upath := r.URL.Path
-
 	if since, err := http.ParseTime(r.Header.Get("If-Modified-Since")); err == nil {
 		log.Debugf("has modified since: %v, poke upstream first", since)
 	} else {
 		// no modified since header, try to get from cache
-		found, err := doFromCache(upath, w, r, v.Cache)
+		found, err := doFromCache(r.URL.Path, w, r, v.Cache)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
@@ -171,7 +185,11 @@ func (v *ViaDownloadServer) maybeCachedHandler(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	client := http.Client{
+	v.fromUpstreamHandler(w, r)
+}
+
+func (v *ViaDownloadServer) newClient() *http.Client {
+	return &http.Client{
 		Transport: &http.Transport{
 			Dial: (&net.Dialer{
 				Timeout: v.ClientTimeout,
@@ -181,30 +199,61 @@ func (v *ViaDownloadServer) maybeCachedHandler(w http.ResponseWriter, r *http.Re
 			ExpectContinueTimeout: 1 * time.Second,
 		},
 	}
+}
 
-		url := buildURL(mirror, upath)
-	for _, mirror := range v.Mirrors {
-		req, err := http.NewRequest(http.MethodGet, url, nil)
-		if err != nil {
-			log.Errorf("failed to prepare request: %v", err)
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		// copy some headers from the original request
-		copyHeaders(req.Header, r.Header,
-			[]string{"Accept", "If-Modified-Since"})
+func (v *ViaDownloadServer) fromUpstreamHandler(w http.ResponseWriter, r *http.Request) {
+	var lastErr error
 
-		err = doFromUpstream(upath, &client, req, w, v.Cache)
+	for idx, mirror := range v.Mirrors {
+		err := v.tryMirror(mirror, w, r)
+		var badStatusErr *errUpstreamBadStatus
 		switch {
-		case err == ErrInternal:
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		case err == ErrUpstreamBadStatus:
-			return
 		case err == nil:
+			return
+		case errors.As(err, &badStatusErr):
+			passthrough := badStatusErr.Rsp.StatusCode == http.StatusNotModified
+			if passthrough {
+				rsp := badStatusErr.Rsp
+				copyHeaders(w.Header(), rsp.Header,
+					[]string{"Content-Type", "Content-Length",
+						"ETag", "Last-Modified",
+						"Date"})
+				w.WriteHeader(rsp.StatusCode)
+				// original response body was consumed, use the copy
+				io.Copy(w, &badStatusErr.Body)
+				return
+			}
+			if !HasMoreMirrors(idx, v.Mirrors) {
+				lastErr = err
+			}
+		default:
+			log.Errorf("mirror failed: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Header().Add("Content-Type", "text/plain")
+			fmt.Fprintf(w, "error processing request: %v\n", err)
 			return
 		}
 	}
+
+	// not found
+	w.WriteHeader(http.StatusNotFound)
+	w.Header().Add("Content-Type", "text/plain")
+	fmt.Fprintf(w, "error: mirrors exhausted\n")
+	if lastErr != nil {
+		fmt.Fprintf(w, "error from last mirror: %v\n", lastErr)
+	}
+}
+
+func (v *ViaDownloadServer) tryMirror(mirror string, w http.ResponseWriter, r *http.Request) error {
+	log.Debugf("trying mirror %v", mirror)
+	url := buildURL(mirror, r.URL.Path)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		log.Errorf("failed to prepare request: %v", err)
+		w.WriteHeader(http.StatusBadGateway)
+		return fmt.Errorf("cannot prepare request: %w", err)
+	}
+	return doFromUpstream(r.URL.Path, v.newClient(), req, w, v.Cache)
 }
 
 func doFromCache(name string, w http.ResponseWriter, r *http.Request, cache *Cache) (bool, error) {
@@ -231,29 +280,28 @@ func doFromUpstream(name string, client *http.Client, req *http.Request,
 
 	rsp, err := client.Do(req)
 	if err != nil {
-		return ErrUpstreamFailed
+		return &errUpstreamFailed{err: err}
 	}
 	log.Debugf("got response: %v", rsp)
 	defer rsp.Body.Close()
 
 	if rsp.StatusCode != 200 {
+		// TODO rethink handling of various non 200 statuses such as 206
+		// partial content
 		log.Errorf("got status %v from upstream %s",
 			rsp.StatusCode, req.URL)
-		// TODO be smart, return ErrMirrorTryAnother for 404 requests
-		// possibly
-		copyHeaders(w.Header(), rsp.Header,
-			[]string{"Content-Type", "Content-Length",
-				"ETag", "Last-Modified",
-				"Date"})
-		w.WriteHeader(rsp.StatusCode)
-		// got non 200 status, just forward
-		io.Copy(w, rsp.Body)
-		return ErrUpstreamBadStatus
+
+		badStatusErr := errUpstreamBadStatus{
+			Upstream: req.URL.String(),
+			Rsp:      rsp,
+		}
+		io.Copy(&badStatusErr.Body, io.LimitReader(rsp.Body, 1024))
+		return &badStatusErr
 	}
 
 	out, err := cache.Put(name)
 	if err != nil {
-		return ErrInternal
+		return fmt.Errorf("cannot write to cache: %w", err)
 	}
 	defer out.Commit()
 

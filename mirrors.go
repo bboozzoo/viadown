@@ -29,26 +29,26 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type Mirrors struct {
-	List []string
-}
+type Mirrors []string
 
-func (m *Mirrors) LoadFile(path string) error {
+func LoadMirrors(path string) (Mirrors, error) {
 	log.Debugf("loading mirror list from file %v", path)
 
 	f, err := os.Open(path)
 	if err != nil {
 		log.Errorf("failed to open mirrors file: %v", err)
-		return err
+		return nil, err
 	}
 	defer f.Close()
 
 	scan := bufio.NewScanner(f)
 	cnt := 0
+
+	var mirrors Mirrors
 	for scan.Scan() {
 		if err := scan.Err(); err != nil {
 			log.Errorf("failed to read line from mirrors file: %v", err)
-			return err
+			return nil, err
 		}
 
 		line := scan.Text()
@@ -61,10 +61,10 @@ func (m *Mirrors) LoadFile(path string) error {
 		if len(mirror) == 0 {
 			continue
 		}
-		m.List = append(m.List, mirror)
+		mirrors = append(mirrors, mirror)
 		cnt++
 	}
 
 	log.Infof("got %v mirrors", cnt)
-	return nil
+	return mirrors, nil
 }

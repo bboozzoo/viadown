@@ -47,7 +47,7 @@ var (
 )
 
 type ViaDownloadServer struct {
-	Mirrors       *Mirrors
+	Mirrors       Mirrors
 	Cache         *Cache
 	ClientTimeout time.Duration
 	Router        *mux.Router
@@ -65,7 +65,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func NewViaDownloadServer(mirrors *Mirrors, cache *Cache, clientTimeout time.Duration) *ViaDownloadServer {
+func NewViaDownloadServer(mirrors Mirrors, cache *Cache, clientTimeout time.Duration) *ViaDownloadServer {
 	vfs := assets.FS(false)
 	if assetsDir := os.Getenv("ASSETS_DIR"); assetsDir != "" {
 		log.Infof("using assets directory: %v", assetsDir)
@@ -189,8 +189,8 @@ func (v *ViaDownloadServer) maybeCachedHandler(w http.ResponseWriter, r *http.Re
 		},
 	}
 
-	for _, mirror := range v.Mirrors.List {
 		url := buildURL(mirror, upath)
+	for _, mirror := range v.Mirrors {
 		req, err := http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
 			log.Errorf("failed to prepare request: %v", err)

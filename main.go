@@ -98,8 +98,8 @@ func main() {
 		}
 	}
 
-	m := Mirrors{}
-	if err := m.LoadFile(*optMirrors); err != nil {
+	m, err := LoadMirrors(*optMirrors)
+	if err != nil {
 		log.Errorf("failed to load mirrors from %v: %v",
 			*optMirrors, err)
 		os.Exit(1)
@@ -115,7 +115,7 @@ func main() {
 	addr := *optListenAddr
 	server := http.Server{
 		Addr:    addr,
-		Handler: NewViaDownloadServer(&m, &cache, *optTimeout),
+		Handler: NewViaDownloadServer(m, &cache, *optTimeout),
 	}
 	log.Infof("listen on %v", addr)
 

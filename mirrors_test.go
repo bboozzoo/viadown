@@ -31,12 +31,6 @@ import (
 )
 
 func TestMirrors(t *testing.T) {
-	m := Mirrors{
-		List: []string{
-			"http://bar.com",
-		},
-	}
-
 	td, err := ioutil.TempDir("", "viadown-test-")
 	assert.NoError(t, err)
 	defer os.RemoveAll(td)
@@ -52,19 +46,18 @@ http://bar.tv
 	assert.NoError(t, err)
 
 	// append entries from file
-	err = m.LoadFile(mf)
+	m, err := LoadMirrors(mf)
 	assert.NoError(t, err)
-	assert.Len(t, m.List, 3)
+	assert.Len(t, m, 2)
 	assert.EqualValues(t,
 		[]string{
-			"http://bar.com",
 			"http://foo.com",
 			"http://bar.tv",
-		}, m.List)
+		}, m)
 
 	// load file that does not exist
-	err = m.LoadFile(path.Join(td, "bar"))
+	m, err = LoadMirrors(path.Join(td, "bar"))
 	assert.Error(t, err)
 	// the list remains unchanged
-	assert.Len(t, m.List, 3)
+	assert.Nil(t, m)
 }

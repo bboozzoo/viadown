@@ -22,51 +22,42 @@
 package main
 
 import (
-	"bufio"
-	"os"
-	"strings"
+	"bytes"
+	"io"
+	"io/ioutil"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-type Mirrors []string
-
-func LoadMirrors(path string) (Mirrors, error) {
-	log.Debugf("loading mirror list from file %v", path)
-
-	f, err := os.Open(path)
-	if err != nil {
-		log.Errorf("failed to open mirrors file: %v", err)
-		return nil, err
-	}
-	defer f.Close()
-
-	scan := bufio.NewScanner(f)
-	cnt := 0
-
-	var mirrors Mirrors
-	for scan.Scan() {
-		if err := scan.Err(); err != nil {
-			log.Errorf("failed to read line from mirrors file: %v", err)
-			return nil, err
-		}
-
-		line := scan.Text()
-
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-		mirror := strings.TrimSpace(line)
-
-		if len(mirror) == 0 {
-			continue
-		}
-		mirrors = append(mirrors, mirror)
-		cnt++
-	}
-
-	log.Infof("got %v mirrors", cnt)
-	return mirrors, nil
+func init() {
+	ll := asLogrusLogger(log)
+	ll.SetOutput(ioutil.Discard)
 }
 
-func HasMoreMirrors(currIdx int, m Mirrors) bool {
-	return (currIdx + 1) < len(m)
+func TestLogNoPanic(t *testing.T) {
+	log.Debugf("foo %s", "bar")
+}
+
+func mockLoggerOutput(out io.Writer) (cleanup func()) {
+	ll := asLogrusLogger(log)
+	old := ll.Out
+	ll.SetOutput(out)
+
+	return func() { ll.SetOutput(old) }
+}
+
+func TestDebugLog(t *testing.T) {
+	var buf bytes.Buffer
+
+	restore := mockLoggerOutput(&buf)
+	defer restore()
+
+	log.Debugf("foo")
+	assert.Empty(t, buf.String())
+
+	EnableDebugLog()
+
+	log.Debugf("foo")
+	assert.Contains(t, buf.String(), "foo\n")
 }

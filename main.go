@@ -25,16 +25,12 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log/syslog"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"time"
-
-	log "github.com/sirupsen/logrus"
-	log_syslog "github.com/sirupsen/logrus/hooks/syslog"
 
 	"github.com/bboozzoo/viadown/assets"
 )
@@ -70,17 +66,11 @@ func main() {
 	}
 
 	if *optSyslog {
-		h, err := log_syslog.NewSyslogHook("", "", syslog.LOG_INFO, "viadown")
-		if err != nil {
-			log.Errorf("failed to connect to syslog: %v", err)
-		} else {
-			log.AddHook(h)
-		}
+		EnableSyslog()
 	}
 
 	if *optDebug {
-		log.SetLevel(log.DebugLevel)
-		log.Debugf("debug logging enabled")
+		EnableDebugLog()
 	}
 
 	if *optMirrors == "" {

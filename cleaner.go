@@ -24,7 +24,6 @@ package main
 import (
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"gopkg.in/tomb.v2"
 )
 

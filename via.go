@@ -36,7 +36,6 @@ import (
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	log "github.com/sirupsen/logrus"
 )
 
 type errUpstreamFailed struct {

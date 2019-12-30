@@ -22,51 +22,47 @@
 package main
 
 import (
-	"bufio"
-	"os"
-	"strings"
+	"fmt"
+	"log/syslog"
+
+	"github.com/sirupsen/logrus"
+	logrus_syslog "github.com/sirupsen/logrus/hooks/syslog"
 )
 
-type Mirrors []string
-
-func LoadMirrors(path string) (Mirrors, error) {
-	log.Debugf("loading mirror list from file %v", path)
-
-	f, err := os.Open(path)
-	if err != nil {
-		log.Errorf("failed to open mirrors file: %v", err)
-		return nil, err
-	}
-	defer f.Close()
-
-	scan := bufio.NewScanner(f)
-	cnt := 0
-
-	var mirrors Mirrors
-	for scan.Scan() {
-		if err := scan.Err(); err != nil {
-			log.Errorf("failed to read line from mirrors file: %v", err)
-			return nil, err
-		}
-
-		line := scan.Text()
-
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-		mirror := strings.TrimSpace(line)
-
-		if len(mirror) == 0 {
-			continue
-		}
-		mirrors = append(mirrors, mirror)
-		cnt++
-	}
-
-	log.Infof("got %v mirrors", cnt)
-	return mirrors, nil
+type Logger interface {
+	Debugf(format string, args ...interface{})
+	Infof(format string, args ...interface{})
+	Info(args ...interface{})
+	Errorf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
 }
 
-func HasMoreMirrors(currIdx int, m Mirrors) bool {
-	return (currIdx + 1) < len(m)
+var log Logger
+
+func init() {
+	log = logrus.New()
+}
+
+func asLogrusLogger(l Logger) *logrus.Logger {
+	ll, ok := l.(*logrus.Logger)
+	if !ok {
+		panic(fmt.Sprintf("bad logger, type %T", l))
+	}
+	return ll
+}
+
+func EnableDebugLog() {
+	ll := asLogrusLogger(log)
+	ll.SetLevel(logrus.DebugLevel)
+	log.Debugf("debug logging enabled")
+}
+
+func EnableSyslog() {
+	ll := asLogrusLogger(log)
+	h, err := logrus_syslog.NewSyslogHook("", "", syslog.LOG_INFO, "viadown")
+	if err != nil {
+		log.Errorf("failed to connect to syslog: %v", err)
+	} else {
+		ll.AddHook(h)
+	}
 }

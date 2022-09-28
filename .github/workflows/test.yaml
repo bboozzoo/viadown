@@ -1,0 +1,34 @@
+name: Tests
+on:
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      # we cache successful runs so it's fine to keep going
+      fail-fast: false      
+      matrix:
+        gochannel:
+          - 1.9
+          - latest/stable
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        go-version: '^1.13.1' # The Go version to download (if necessary) and use.
+    - name: Get Go dependencies
+      run: |
+        make deps
+    - name: Generate assets
+      run: |
+        make generate
+    - name: Build Go
+      if: steps.cached-results.outputs.already-ran != 'true'
+      run: |
+        make
+    - name: Test Go
+      run: |
+        make test
